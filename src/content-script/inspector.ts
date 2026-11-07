@@ -317,9 +317,24 @@ export function createInspector(): InspectorController {
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && enabled) {
+      e.preventDefault();
+      disable();
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({ type: 'INSPECTOR_STATE_CHANGED', enabled: false }).catch(() => {});
+      }
+      return;
+    }
+
     if (e.altKey && (e.key === 'x' || e.key === 'X')) {
       e.preventDefault();
-      toggle();
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({ type: 'TOGGLE_INSPECTOR' }).catch(() => {
+          toggle();
+        });
+      } else {
+        toggle();
+      }
     }
   }
 
@@ -329,6 +344,8 @@ export function createInspector(): InspectorController {
     enabled = true;
     ensureElements();
     showToast('🔍 Inspector: ON (Click element to copy, Alt+X to exit)', 3000);
+    window.removeEventListener('mouseover', handleMouseOver, true);
+    window.removeEventListener('click', handleClick, true);
     window.addEventListener('mouseover', handleMouseOver, true);
     window.addEventListener('click', handleClick, true);
   }
@@ -337,6 +354,12 @@ export function createInspector(): InspectorController {
     enabled = false;
     if (box) box.style.display = 'none';
     if (card) card.style.display = 'none';
+
+    const domBox = document.getElementById('__wat_inspector_box__');
+    if (domBox) domBox.style.display = 'none';
+    const domCard = document.getElementById('__wat_inspector_card__');
+    if (domCard) domCard.style.display = 'none';
+
     showToast('Inspector: OFF', 1500);
     currentTarget = null;
     window.removeEventListener('mouseover', handleMouseOver, true);

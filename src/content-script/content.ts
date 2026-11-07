@@ -101,6 +101,12 @@ export function flushPendingInputs(): void {
 export function setupContentScript(): void {
   if (typeof window === 'undefined') return;
 
+  // Prevent duplicate script execution or listener accumulation in the same window
+  if ((window as any).__WAT_CONTENT_SCRIPT_INITIALIZED__) {
+    return;
+  }
+  (window as any).__WAT_CONTENT_SCRIPT_INITIALIZED__ = true;
+
   inspector = createInspector();
 
   // Listen for DOM events in capture phase
@@ -148,10 +154,26 @@ export function setupContentScript(): void {
           sendResponse({ success: true, isRecording });
           break;
 
+        case 'SET_INSPECTOR':
+          if (inspector) {
+            if (message.enabled) {
+              inspector.enable();
+            } else {
+              inspector.disable();
+            }
+            sendResponse({ success: true, enabled: inspector.isEnabled() });
+          }
+          break;
+
         case 'TOGGLE_INSPECTOR':
           if (inspector) {
-            const enabled = inspector.toggle();
-            sendResponse({ success: true, enabled });
+            const nextState = message.enabled !== undefined ? message.enabled : !inspector.isEnabled();
+            if (nextState) {
+              inspector.enable();
+            } else {
+              inspector.disable();
+            }
+            sendResponse({ success: true, enabled: inspector.isEnabled() });
           }
           break;
 

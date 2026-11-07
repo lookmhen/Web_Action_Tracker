@@ -26,6 +26,11 @@ describe('Service Worker State Manager', () => {
       set: vi.fn((items: any, cb?: () => void) => {
         Object.assign(mockStorage, items);
         if (cb) cb();
+      }),
+      remove: vi.fn((keys: any, cb?: () => void) => {
+        const keyArr = Array.isArray(keys) ? keys : [keys];
+        keyArr.forEach(k => delete mockStorage[k]);
+        if (cb) cb();
       })
     };
 
@@ -160,7 +165,14 @@ describe('Service Worker State Manager', () => {
     expect(isInspecting).toBe(true);
     expect(tabsMock.query).toHaveBeenCalled();
     expect(queriedOptions).toEqual({ active: true, lastFocusedWindow: true });
-    expect(tabsMock.sendMessage).toHaveBeenCalledWith(777, { type: 'TOGGLE_INSPECTOR' });
+    expect(tabsMock.sendMessage).toHaveBeenCalledWith(777, { type: 'SET_INSPECTOR', enabled: true });
+
+    // Calling toggleInspector again turns it OFF with enabled: false
+    // Advance time slightly to bypass debounce
+    await new Promise(r => setTimeout(r, 350));
+    const isInspectingOff = await sw.toggleInspector();
+    expect(isInspectingOff).toBe(false);
+    expect(tabsMock.sendMessage).toHaveBeenLastCalledWith(777, { type: 'SET_INSPECTOR', enabled: false });
   });
 
   it('attempts dynamic injection of content.js if tab sendMessage fails on toggleInspector', async () => {

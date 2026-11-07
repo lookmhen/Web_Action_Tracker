@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { handleDomEvent, handleTelemetryMessage } from '../src/content-script/content';
+import { handleDomEvent, handleTelemetryMessage, setupContentScript } from '../src/content-script/content';
 
 describe('Content Script Event Delegation', () => {
   beforeEach(() => {
@@ -63,5 +63,32 @@ describe('Content Script Event Delegation', () => {
 
     handleTelemetryMessage({ data: telemetryEvent } as MessageEvent, mockSend);
     expect(mockSend).toHaveBeenCalledWith(telemetryEvent.event);
+  });
+
+  it('handles SET_INSPECTOR message to explicitly enable and disable inspector', () => {
+    let messageListener: any;
+    (globalThis as any).chrome = {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((fn) => { messageListener = fn; })
+        },
+        sendMessage: vi.fn()
+      },
+      storage: {
+        local: { get: vi.fn() }
+      }
+    };
+
+    // Re-setup to trigger listener registration
+    setupContentScript();
+
+    expect(messageListener).toBeTruthy();
+
+    const responseSpy = vi.fn();
+    messageListener({ type: 'SET_INSPECTOR', enabled: true }, {}, responseSpy);
+    expect(responseSpy).toHaveBeenCalledWith({ success: true, enabled: true });
+
+    messageListener({ type: 'SET_INSPECTOR', enabled: false }, {}, responseSpy);
+    expect(responseSpy).toHaveBeenCalledWith({ success: true, enabled: false });
   });
 });

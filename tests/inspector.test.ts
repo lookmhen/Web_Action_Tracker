@@ -92,6 +92,19 @@ describe('Live Element Inspector', () => {
     expect(toast?.textContent).toContain('Inspector: OFF');
   });
 
+  it('disables inspector when Escape key is pressed', () => {
+    const inspector = createInspector();
+    inspector.enable();
+    expect(inspector.isEnabled()).toBe(true);
+
+    const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+    window.dispatchEvent(escapeEvent);
+
+    expect(inspector.isEnabled()).toBe(false);
+    const box = document.getElementById('__wat_inspector_box__');
+    expect(box?.style.display).toBe('none');
+  });
+
   it('debounces rapid toggle calls within short interval', () => {
     const inspector = createInspector();
     expect(inspector.isEnabled()).toBe(false);

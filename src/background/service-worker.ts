@@ -8,6 +8,7 @@ export class ServiceWorkerStateManager {
   private readyPromise: Promise<void>;
   private isExecutingStep = false;
   private replayStepTimer: any = null;
+  private lastInspectorToggleTime = 0;
 
   constructor(
     storage: chrome.storage.StorageArea,
@@ -115,9 +116,21 @@ export class ServiceWorkerStateManager {
     return session;
   }
 
-  public async toggleInspector(tabId?: number): Promise<boolean> {
+  public async setInspectorState(enabled: boolean): Promise<void> {
     await this.readyPromise;
-    this.state.isInspecting = !this.state.isInspecting;
+    this.state.isInspecting = enabled;
+    await this.persist();
+  }
+
+  public async toggleInspector(tabId?: number, forceState?: boolean): Promise<boolean> {
+    await this.readyPromise;
+    const now = Date.now();
+    if (forceState === undefined && now - this.lastInspectorToggleTime < 300) {
+      return this.state.isInspecting;
+    }
+    this.lastInspectorToggleTime = now;
+
+    this.state.isInspecting = forceState !== undefined ? forceState : !this.state.isInspecting;
     await this.persist();
 
     let targetTabId = tabId || this.state.activeTabId;
@@ -133,8 +146,9 @@ export class ServiceWorkerStateManager {
     }
 
     if (targetTabId && this.tabsApi?.sendMessage) {
+      const payload = { type: 'SET_INSPECTOR', enabled: this.state.isInspecting };
       try {
-        await this.tabsApi.sendMessage(targetTabId, { type: 'TOGGLE_INSPECTOR' });
+        await this.tabsApi.sendMessage(targetTabId, payload);
       } catch {
         // If content script is not yet injected (e.g. tab opened before extension load), inject content.js
         const scripting = (globalThis as any).chrome?.scripting;
@@ -144,7 +158,7 @@ export class ServiceWorkerStateManager {
               target: { tabId: targetTabId },
               files: ['content.js']
             });
-            await this.tabsApi.sendMessage(targetTabId, { type: 'TOGGLE_INSPECTOR' });
+            await this.tabsApi.sendMessage(targetTabId, payload);
           } catch {
             // Cannot script protected tab (e.g. chrome://)
           }
@@ -261,7 +275,9 @@ export class ServiceWorkerStateManager {
     this.isExecutingStep = false;
     this.state.status = 'IDLE';
     this.state.replayingStepIndex = undefined;
-    await this.storage.remove(['wat_replay_queue', 'wat_replay_step']);
+    if (this.storage.remove) {
+      await this.storage.remove(['wat_replay_queue', 'wat_replay_step']);
+    }
     await this.persist();
     this.updateBadge('', '#000000');
   }
@@ -326,6 +342,12 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
       case 'TOGGLE_INSPECTOR':
         manager.toggleInspector(message.tabId).then((enabled) => {
           sendResponse({ success: true, isInspecting: enabled });
+        });
+        return true;
+
+      case 'INSPECTOR_STATE_CHANGED':
+        manager.setInspectorState(Boolean(message.enabled)).then(() => {
+          sendResponse({ success: true });
         });
         return true;
 
