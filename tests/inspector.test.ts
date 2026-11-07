@@ -92,4 +92,48 @@ describe('Live Element Inspector', () => {
     expect(secondState).toBe(true);
     expect(inspector.isEnabled()).toBe(true);
   });
+
+  it('extracts computed CSS styles including dimensions, colors, box model, and typography', () => {
+    const inspector = createInspector();
+    inspector.enable();
+
+    const btn = document.getElementById('btn-save')!;
+    btn.getBoundingClientRect = vi.fn().mockReturnValue({
+      top: 50, left: 100, width: 120, height: 42, bottom: 92, right: 220
+    });
+
+    // Mock computed styles
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el: Element) => {
+      return {
+        display: 'inline-block',
+        color: 'rgb(255, 255, 255)',
+        backgroundColor: 'rgb(37, 99, 235)',
+        paddingTop: '8px',
+        paddingRight: '16px',
+        paddingBottom: '8px',
+        paddingLeft: '16px',
+        marginTop: '0px',
+        marginRight: '0px',
+        marginBottom: '12px',
+        marginLeft: '0px',
+        fontSize: '14px',
+        fontFamily: '"Inter", sans-serif',
+        fontWeight: '600'
+      } as any;
+    });
+
+    const mouseOverEvent = new MouseEvent('mouseover', { bubbles: true });
+    btn.dispatchEvent(mouseOverEvent);
+
+    const card = document.getElementById('__wat_inspector_card__')!;
+    expect(card.innerHTML).toContain('120 × 42 px');
+    expect(card.innerHTML).toContain('inline-block');
+    expect(card.innerHTML).toContain('rgb(255, 255, 255)');
+    expect(card.innerHTML).toContain('rgb(37, 99, 235)');
+    expect(card.innerHTML).toContain('8px 16px'); // padding shorthand
+    expect(card.innerHTML).toContain('0px 0px 12px'); // margin 3-value shorthand (top right/left bottom)
+    expect(card.innerHTML).toContain('14px');
+    expect(card.innerHTML).toContain('Inter');
+    expect(card.innerHTML).toContain('600');
+  });
 });

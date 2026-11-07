@@ -7,6 +7,85 @@ export interface InspectorController {
   isEnabled: () => boolean;
 }
 
+export interface ComputedElementStyles {
+  dimensions: string;
+  display: string;
+  color: string;
+  backgroundColor: string;
+  padding: string;
+  margin: string;
+  fontSize: string;
+  fontFamily: string;
+  fontWeight: string;
+}
+
+export function formatBoxModel(top = '0px', right = '0px', bottom = '0px', left = '0px'): string {
+  if (top === bottom && right === left) {
+    if (top === right) {
+      return top;
+    }
+    return `${top} ${right}`;
+  }
+  if (right === left) {
+    return `${top} ${right} ${bottom}`;
+  }
+  return `${top} ${right} ${bottom} ${left}`;
+}
+
+export function extractComputedStyles(element: HTMLElement, rect: DOMRect): ComputedElementStyles {
+  const width = Math.round(rect.width);
+  const height = Math.round(rect.height);
+  const dimensions = `${width} × ${height} px`;
+
+  let display = 'block';
+  let color = '#ffffff';
+  let backgroundColor = 'transparent';
+  let padding = '0px';
+  let margin = '0px';
+  let fontSize = '14px';
+  let fontFamily = 'sans-serif';
+  let fontWeight = '400';
+
+  if (typeof window !== 'undefined' && window.getComputedStyle) {
+    try {
+      const cs = window.getComputedStyle(element);
+      display = cs.display || 'block';
+      color = cs.color || '#ffffff';
+
+      const bg = cs.backgroundColor || '';
+      if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
+        backgroundColor = 'transparent';
+      } else {
+        backgroundColor = bg;
+      }
+
+      padding = formatBoxModel(cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft);
+      margin = formatBoxModel(cs.marginTop, cs.marginRight, cs.marginBottom, cs.marginLeft);
+
+      fontSize = cs.fontSize || '14px';
+
+      const rawFamily = cs.fontFamily || 'sans-serif';
+      fontFamily = rawFamily.split(',')[0].replace(/['"]/g, '').trim();
+
+      fontWeight = cs.fontWeight || '400';
+    } catch {
+      // Ignore if styles cannot be computed
+    }
+  }
+
+  return {
+    dimensions,
+    display,
+    color,
+    backgroundColor,
+    padding,
+    margin,
+    fontSize,
+    fontFamily,
+    fontWeight
+  };
+}
+
 function escapeHtml(str?: string | null): string {
   if (!str) return '';
   return str
@@ -56,7 +135,7 @@ export function createInspector(): InspectorController {
       card.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3)';
       card.style.border = '1px solid #334155';
       card.style.display = 'none';
-      card.style.maxWidth = '340px';
+      card.style.maxWidth = '360px';
       card.style.lineHeight = '1.45';
       card.style.boxSizing = 'border-box';
       document.body.appendChild(card);
@@ -121,6 +200,7 @@ export function createInspector(): InspectorController {
     // Compute selectors info
     const selectors = resolveElementSelectors(target);
     const bestSelector = computeBestSelector(selectors);
+    const styles = extractComputedStyles(target, rect);
 
     const tagRole = selectors.role 
       ? `&lt;${escapeHtml(selectors.tag)}&gt; (role: ${escapeHtml(selectors.role)})` 
@@ -133,12 +213,37 @@ export function createInspector(): InspectorController {
       : '';
     const textPreview = selectors.text ? `text: <span style="color:#fbbf24">"${escapeHtml(selectors.text)}"</span>` : '';
 
+    const bgPreview = styles.backgroundColor !== 'transparent'
+      ? `<span><span style="color:#94a3b8">Bg:</span> <span style="display:inline-block; width:9px; height:9px; border-radius:2px; background-color:${escapeHtml(styles.backgroundColor)}; border:1px solid #475569; vertical-align:middle;"></span> <span>${escapeHtml(styles.backgroundColor)}</span></span>`
+      : '<span style="color:#64748b;">(bg: transparent)</span>';
+
     card.innerHTML = `
       <div style="font-weight:700; color:#60a5fa; margin-bottom:2px;">${tagRole}</div>
       ${idOrTestId ? `<div>${idOrTestId}</div>` : ''}
       ${classes ? `<div>${classes}</div>` : ''}
       ${textPreview ? `<div>${textPreview}</div>` : ''}
-      <div style="margin-top:4px; padding-top:4px; border-top:1px solid #334155; color:#34d399; font-weight:600;">
+
+      <div style="margin-top:6px; padding-top:6px; border-top:1px solid #334155; font-size:10px; color:#cbd5e1; display:flex; flex-direction:column; gap:3px;">
+        <div>
+          <span style="color:#94a3b8;">📐 Size:</span> <strong style="color:#f8fafc;">${escapeHtml(styles.dimensions)}</strong> <span style="color:#64748b;">(${escapeHtml(styles.display)})</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span>
+            <span style="color:#94a3b8;">🎨 Color:</span>
+            <span style="display:inline-block; width:9px; height:9px; border-radius:2px; background-color:${escapeHtml(styles.color)}; border:1px solid #475569; vertical-align:middle;"></span>
+            <span>${escapeHtml(styles.color)}</span>
+          </span>
+          ${bgPreview}
+        </div>
+        <div>
+          <span style="color:#94a3b8;">📦 Box:</span> p: <strong style="color:#38bdf8">${escapeHtml(styles.padding)}</strong> | m: <strong style="color:#fb923c">${escapeHtml(styles.margin)}</strong>
+        </div>
+        <div>
+          <span style="color:#94a3b8;">🔤 Font:</span> ${escapeHtml(styles.fontSize)} ${escapeHtml(styles.fontFamily)} <span style="color:#64748b;">(${escapeHtml(styles.fontWeight)})</span>
+        </div>
+      </div>
+
+      <div style="margin-top:6px; padding-top:4px; border-top:1px solid #334155; color:#34d399; font-weight:600; word-break:break-all;">
         ${escapeHtml(bestSelector)}
       </div>
       <div style="font-size:9px; color:#64748b; margin-top:2px;">Click to copy selector</div>
