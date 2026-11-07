@@ -6,7 +6,61 @@
   <link rel="stylesheet" href="./src/ui/popup/popup.css">
 </head>
 <body>
-  <div id="app"></div>
+  <div class="header">
+    <div class="brand">
+      <span style="font-size: 16px;">🎬</span>
+      <span class="brand-title">Action Tracker</span>
+      <span class="brand-ver">v1.2</span>
+    </div>
+    <div id="status-badge" class="badge badge-idle">IDLE</div>
+  </div>
+
+  <div class="controls">
+    <button id="btn-record" class="btn btn-primary">
+      <span id="btn-record-icon">●</span> <span id="btn-record-text">Record</span>
+    </button>
+    <button id="btn-inspect" class="btn btn-secondary" title="Shortcut: Alt+X">
+      <span>🔍</span> <span>Inspect</span>
+    </button>
+    <button id="btn-replay" class="btn btn-blue">
+      <span>▶</span> <span>Replay</span>
+    </button>
+  </div>
+
+  <div class="stats-bar">
+    <div>Events: <strong id="event-count" style="color:#f8fafc">0</strong></div>
+    <div>Failures: <strong id="failure-count" style="color:#ef4444">0</strong></div>
+  </div>
+
+  <div class="timeline-container">
+    <div class="timeline-title">Recent Timeline</div>
+    <div id="event-list" class="event-list">
+      <div style="color: #64748b; font-size: 11px; text-align: center; margin-top: 20px;">
+        Click Record to start capturing user actions and errors.
+      </div>
+    </div>
+  </div>
+
+  <div class="export-section">
+    <div class="export-title">
+      <span>Export Session</span>
+    </div>
+    <div class="export-buttons">
+      <button id="btn-export-md" class="btn-export">Markdown</button>
+      <button id="btn-export-pw" class="btn-export">Playwright</button>
+      <button id="btn-export-json" class="btn-export">JSON</button>
+    </div>
+
+    <div class="import-row">
+      <label for="input-import-json" class="file-label">
+        📂 Import JSON to Replay
+      </label>
+      <input type="file" id="input-import-json" accept=".json" style="display: none;" />
+    </div>
+  </div>
+
+  <div id="toast-msg" class="toast">Copied to clipboard!</div>
+
   <script type="module" src="./src/ui/popup/popup.ts"></script>
 </body>
 </html>
