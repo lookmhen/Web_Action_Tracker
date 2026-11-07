@@ -96,6 +96,33 @@ function escapeHtml(str?: string | null): string {
     .replace(/'/g, '&#039;');
 }
 
+export function formatElementDetails(
+  element: HTMLElement,
+  selectors: ReturnType<typeof resolveElementSelectors>,
+  bestSelector: string
+): string {
+  const rect = element.getBoundingClientRect();
+  const styles = extractComputedStyles(element, rect);
+
+  const lines: string[] = [];
+  // Element selector at the very top as requested
+  lines.push(`Selector: ${bestSelector}`);
+  const tagRole = selectors.role ? `<${selectors.tag}> (role: ${selectors.role})` : `<${selectors.tag}>`;
+  lines.push(`Tag: ${tagRole}`);
+
+  if (selectors.id) lines.push(`ID: #${selectors.id}`);
+  if (selectors.testId) lines.push(`TestID: ${selectors.testId}`);
+  if (selectors.classes && selectors.classes.length > 0) lines.push(`Class: .${selectors.classes.join('.')}`);
+  if (selectors.text) lines.push(`Text: "${selectors.text}"`);
+
+  lines.push(`Size: ${styles.dimensions} (${styles.display})`);
+  lines.push(`Color: ${styles.color} | Bg: ${styles.backgroundColor}`);
+  lines.push(`Box: Padding: ${styles.padding} | Margin: ${styles.margin}`);
+  lines.push(`Font: ${styles.fontSize} ${styles.fontFamily} (weight: ${styles.fontWeight})`);
+
+  return lines.join('\n');
+}
+
 export function createInspector(): InspectorController {
   let enabled = false;
   let currentTarget: HTMLElement | null = null;
@@ -246,7 +273,7 @@ export function createInspector(): InspectorController {
       <div style="margin-top:6px; padding-top:4px; border-top:1px solid #334155; color:#34d399; font-weight:600; word-break:break-all;">
         ${escapeHtml(bestSelector)}
       </div>
-      <div style="font-size:9px; color:#64748b; margin-top:2px;">Click to copy selector</div>
+      <div style="font-size:9px; color:#64748b; margin-top:2px;">Click to copy element &amp; details</div>
     `;
     card.style.display = 'block';
 
@@ -276,15 +303,16 @@ export function createInspector(): InspectorController {
 
     const selectors = resolveElementSelectors(target);
     const bestSelector = computeBestSelector(selectors);
+    const fullDetails = formatElementDetails(target, selectors, bestSelector);
 
     if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(bestSelector).then(() => {
-        showToast(`Copied: ${bestSelector}`);
+      navigator.clipboard.writeText(fullDetails).then(() => {
+        showToast(`Copied details for ${bestSelector}`);
       }).catch(() => {
-        showToast(`Copied: ${bestSelector}`);
+        showToast(`Copied details for ${bestSelector}`);
       });
     } else {
-      showToast(`Copied: ${bestSelector}`);
+      showToast(`Copied details for ${bestSelector}`);
     }
   }
 

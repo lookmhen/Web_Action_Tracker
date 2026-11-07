@@ -48,11 +48,15 @@ describe('Live Element Inspector', () => {
     expect(card.innerHTML).toContain('Save Changes');
   });
 
-  it('copies computed selector to clipboard and stops propagation on click', () => {
+  it('copies full element details with selector on top to clipboard on click', () => {
     const inspector = createInspector();
     inspector.enable();
 
     const btn = document.getElementById('btn-save')!;
+    btn.getBoundingClientRect = vi.fn().mockReturnValue({
+      top: 50, left: 100, width: 120, height: 42, bottom: 92, right: 220
+    });
+
     let pageHandlerCalled = false;
     btn.addEventListener('click', () => {
       pageHandlerCalled = true;
@@ -61,9 +65,18 @@ describe('Live Element Inspector', () => {
     const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
     btn.dispatchEvent(clickEvent);
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('[data-testid="save-btn"]');
     expect(pageHandlerCalled).toBe(false);
     expect(clickEvent.defaultPrevented).toBe(true);
+    expect(navigator.clipboard.writeText).toHaveBeenCalled();
+    const copiedText = (navigator.clipboard.writeText as any).mock.calls[0][0];
+
+    // Selector must be at the very top
+    expect(copiedText.startsWith('Selector: [data-testid="save-btn"]')).toBe(true);
+    expect(copiedText).toContain('Tag: <button>');
+    expect(copiedText).toContain('Size:');
+    expect(copiedText).toContain('Color:');
+    expect(copiedText).toContain('Box:');
+    expect(copiedText).toContain('Font:');
   });
 
   it('shows visual toast on enable and disable', () => {
