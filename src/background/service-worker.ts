@@ -155,12 +155,23 @@ export class ServiceWorkerStateManager {
 
     this.updateBadge('RPL', '#3b82f6');
 
-    // Check if tab needs navigation to startUrl
+    // Reset page to startUrl to guarantee a clean initial state
     if (this.tabsApi?.update && session.metadata.startUrl) {
       this.tabsApi.update(tabId, { url: session.metadata.startUrl });
-    } else if (this.tabsApi?.sendMessage) {
-      this.executeNextReplayStep(tabId);
+    } else {
+      this.scheduleNextReplayStep(tabId, 350);
     }
+  }
+
+  public scheduleNextReplayStep(tabId: number, delayMs = 400): void {
+    if (this.replayStepTimer) {
+      clearTimeout(this.replayStepTimer);
+      this.replayStepTimer = null;
+    }
+    this.replayStepTimer = setTimeout(() => {
+      this.replayStepTimer = null;
+      this.executeNextReplayStep(tabId);
+    }, delayMs);
   }
 
   public async executeNextReplayStep(tabId: number): Promise<void> {
@@ -305,7 +316,7 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
 
       case 'CONTENT_READY_FOR_NEXT_STEP':
         if (tabId) {
-          manager.executeNextReplayStep(tabId);
+          manager.scheduleNextReplayStep(tabId, 250);
           sendResponse({ success: true });
         }
         break;
@@ -319,20 +330,20 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
   // Watch tab updates / navigation to resume replay or re-inject MAIN world script
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.status === 'complete') {
-      const state = manager.getState();
-      if (state.status === 'RECORDING' && state.activeTabId === tabId) {
-        if (chrome.scripting) {
-          chrome.scripting.executeScript({
-            target: { tabId },
-            world: 'MAIN',
-            files: ['injected.js']
-          }).catch(() => {});
+      manager.getState().then((state) => {
+        if (state.status === 'RECORDING' && state.activeTabId === tabId) {
+          if (chrome.scripting) {
+            chrome.scripting.executeScript({
+              target: { tabId },
+              world: 'MAIN',
+              files: ['injected.js']
+            }).catch(() => {});
+          }
+        } else if (state.status === 'REPLAYING' && state.activeTabId === tabId) {
+          // Debounced step scheduler guarantees DOM & hydration settled before step runs
+          manager.scheduleNextReplayStep(tabId, 400);
         }
-      } else if (state.status === 'REPLAYING' && state.activeTabId === tabId) {
-        setTimeout(() => {
-          manager.executeNextReplayStep(tabId);
-        }, 500);
-      }
+      });
     }
   });
 

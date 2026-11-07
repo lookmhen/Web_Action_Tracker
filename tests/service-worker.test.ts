@@ -111,4 +111,35 @@ describe('Service Worker State Manager', () => {
 
     expect((await sw.getState()).currentSession?.events.length).toBe(1);
   });
+
+  it('debounces and coordinates replay step execution to prevent double execution', async () => {
+    const session: RecordedSession = {
+      sessionId: 'rec_replay_sync',
+      metadata: { startUrl: 'https://app.com', userAgent: 'Chrome', viewport: { width: 1000, height: 800 }, startedAt: 100 },
+      events: [
+        { id: '1', category: 'action', type: 'click', timestamp: 101, url: 'https://app.com', selectors: { tag: 'button', css: 'button' } }
+      ]
+    };
+
+    let stepCallCount = 0;
+    const tabsMock = {
+      update: vi.fn(),
+      sendMessage: vi.fn().mockImplementation(() => {
+        stepCallCount++;
+        return Promise.resolve({ success: true });
+      })
+    };
+
+    const sw = new ServiceWorkerStateManager({ get: vi.fn((k, cb) => cb({})), set: vi.fn((i, cb) => cb && cb()) } as any, undefined, tabsMock as any);
+    await sw.startReplay(session, 101);
+
+    // Call scheduleNextReplayStep twice in quick succession (simulating tabs.onUpdated + CONTENT_READY_FOR_NEXT_STEP)
+    sw.scheduleNextReplayStep(101, 50);
+    sw.scheduleNextReplayStep(101, 50);
+
+    await new Promise(r => setTimeout(r, 120));
+
+    // Must execute only once
+    expect(stepCallCount).toBe(1);
+  });
 });
