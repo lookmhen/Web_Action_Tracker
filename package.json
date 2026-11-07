@@ -1,0 +1,19 @@
+{
+  "name": "web-action-tracker",
+  "version": "1.2.0",
+  "description": "Web Action Tracker, Bug Replay & Element Inspector Chrome Extension (MV3)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.308",
+    "@types/node": "^22.13.9",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.7"
+  }
+}
