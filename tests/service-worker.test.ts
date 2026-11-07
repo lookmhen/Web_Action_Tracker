@@ -142,4 +142,50 @@ describe('Service Worker State Manager', () => {
     // Must execute only once
     expect(stepCallCount).toBe(1);
   });
+
+  it('queries active tab in lastFocusedWindow when toggleInspector called with no tabId and not recording', async () => {
+    let queriedOptions: any;
+    const tabsMock = {
+      query: vi.fn((opts: any, cb: (res: any) => void) => {
+        queriedOptions = opts;
+        cb([{ id: 777, active: true }]);
+      }),
+      sendMessage: vi.fn().mockResolvedValue({ success: true, enabled: true })
+    };
+
+    const sw = new ServiceWorkerStateManager({ get: vi.fn((k, cb) => cb({})), set: vi.fn((i, cb) => cb && cb()) } as any, undefined, tabsMock as any);
+    await sw.whenReady();
+
+    const isInspecting = await sw.toggleInspector();
+    expect(isInspecting).toBe(true);
+    expect(tabsMock.query).toHaveBeenCalled();
+    expect(queriedOptions).toEqual({ active: true, lastFocusedWindow: true });
+    expect(tabsMock.sendMessage).toHaveBeenCalledWith(777, { type: 'TOGGLE_INSPECTOR' });
+  });
+
+  it('attempts dynamic injection of content.js if tab sendMessage fails on toggleInspector', async () => {
+    const tabsMock = {
+      sendMessage: vi.fn()
+        .mockRejectedValueOnce(new Error('Receiving end does not exist'))
+        .mockResolvedValueOnce({ success: true, enabled: true })
+    };
+
+    // Mock chrome.scripting
+    const mockExecuteScript = vi.fn().mockResolvedValue([]);
+    (globalThis as any).chrome = {
+      scripting: {
+        executeScript: mockExecuteScript
+      }
+    };
+
+    const sw = new ServiceWorkerStateManager({ get: vi.fn((k, cb) => cb({})), set: vi.fn((i, cb) => cb && cb()) } as any, undefined, tabsMock as any);
+    await sw.whenReady();
+
+    await sw.toggleInspector(888);
+
+    expect(mockExecuteScript).toHaveBeenCalledWith({
+      target: { tabId: 888 },
+      files: ['content.js']
+    });
+  });
 });

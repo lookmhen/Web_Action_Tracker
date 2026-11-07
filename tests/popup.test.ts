@@ -56,9 +56,10 @@ describe('Popup UI Handlers', () => {
     expect(document.getElementById('status-badge')?.textContent).toBe('RECORDING');
   });
 
-  it('triggers inspector toggle', async () => {
+  it('triggers inspector toggle and closes popup window', async () => {
     const mockSend = vi.fn().mockResolvedValue({ success: true, isInspecting: true });
     const mockGetActiveTab = vi.fn().mockResolvedValue({ id: 101, url: 'https://app.com' });
+    const closeSpy = vi.spyOn(window, 'close').mockImplementation(() => {});
 
     setupPopupHandlers({ sendMessage: mockSend, getActiveTab: mockGetActiveTab });
     const btn = document.getElementById('btn-inspect') as HTMLButtonElement;
@@ -66,6 +67,8 @@ describe('Popup UI Handlers', () => {
 
     await new Promise(r => setTimeout(r, 10));
     expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ type: 'TOGGLE_INSPECTOR', tabId: 101 }));
+    expect(closeSpy).toHaveBeenCalled();
+    closeSpy.mockRestore();
   });
 
   it('exports markdown to clipboard', async () => {

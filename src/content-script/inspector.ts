@@ -82,13 +82,21 @@ export function createInspector(): InspectorController {
     }
   }
 
-  function showToast(message: string) {
+  let toastTimer: any = null;
+
+  function showToast(message: string, durationMs = 2500) {
+    ensureElements();
     if (!toast) return;
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
+    }
     toast.textContent = message;
     toast.style.display = 'block';
-    setTimeout(() => {
+    toastTimer = setTimeout(() => {
       if (toast) toast.style.display = 'none';
-    }, 2000);
+      toastTimer = null;
+    }, durationMs);
   }
 
   function handleMouseOver(e: MouseEvent) {
@@ -182,9 +190,12 @@ export function createInspector(): InspectorController {
     }
   }
 
+  let lastToggleTime = 0;
+
   function enable() {
     enabled = true;
     ensureElements();
+    showToast('🔍 Inspector: ON (Click element to copy, Alt+X to exit)', 3000);
     window.addEventListener('mouseover', handleMouseOver, true);
     window.addEventListener('click', handleClick, true);
   }
@@ -193,13 +204,19 @@ export function createInspector(): InspectorController {
     enabled = false;
     if (box) box.style.display = 'none';
     if (card) card.style.display = 'none';
-    if (toast) toast.style.display = 'none';
+    showToast('Inspector: OFF', 1500);
     currentTarget = null;
     window.removeEventListener('mouseover', handleMouseOver, true);
     window.removeEventListener('click', handleClick, true);
   }
 
   function toggle(): boolean {
+    const now = Date.now();
+    if (now - lastToggleTime < 300) {
+      return enabled;
+    }
+    lastToggleTime = now;
+
     if (enabled) {
       disable();
     } else {

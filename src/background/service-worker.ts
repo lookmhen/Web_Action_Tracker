@@ -120,9 +120,36 @@ export class ServiceWorkerStateManager {
     this.state.isInspecting = !this.state.isInspecting;
     await this.persist();
 
-    const targetTabId = tabId || this.state.activeTabId;
+    let targetTabId = tabId || this.state.activeTabId;
+
+    // Fallback: If not recording and tabId not passed, query active tab from lastFocusedWindow
+    if (!targetTabId && this.tabsApi?.query) {
+      const tabs = await new Promise<chrome.tabs.Tab[]>((resolve) => {
+        this.tabsApi!.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+          resolve(tabs || []);
+        });
+      });
+      targetTabId = tabs[0]?.id;
+    }
+
     if (targetTabId && this.tabsApi?.sendMessage) {
-      this.tabsApi.sendMessage(targetTabId, { type: 'TOGGLE_INSPECTOR' }).catch(() => {});
+      try {
+        await this.tabsApi.sendMessage(targetTabId, { type: 'TOGGLE_INSPECTOR' });
+      } catch {
+        // If content script is not yet injected (e.g. tab opened before extension load), inject content.js
+        const scripting = (globalThis as any).chrome?.scripting;
+        if (scripting?.executeScript) {
+          try {
+            await scripting.executeScript({
+              target: { tabId: targetTabId },
+              files: ['content.js']
+            });
+            await this.tabsApi.sendMessage(targetTabId, { type: 'TOGGLE_INSPECTOR' });
+          } catch {
+            // Cannot script protected tab (e.g. chrome://)
+          }
+        }
+      }
     }
 
     return this.state.isInspecting;
@@ -350,9 +377,11 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
   // Listen for keyboard command toggle-inspector from manifest
   chrome.commands?.onCommand?.addListener((command) => {
     if (command === 'toggle-inspector') {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
         if (tabs[0]?.id) {
           manager.toggleInspector(tabs[0].id);
+        } else {
+          manager.toggleInspector();
         }
       });
     }

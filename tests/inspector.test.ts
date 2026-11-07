@@ -65,4 +65,31 @@ describe('Live Element Inspector', () => {
     expect(pageHandlerCalled).toBe(false);
     expect(clickEvent.defaultPrevented).toBe(true);
   });
+
+  it('shows visual toast on enable and disable', () => {
+    const inspector = createInspector();
+    inspector.enable();
+
+    const toast = document.getElementById('__wat_inspector_toast__');
+    expect(toast).toBeTruthy();
+    expect(toast?.style.display).toBe('block');
+    expect(toast?.textContent).toContain('Inspector: ON');
+
+    inspector.disable();
+    expect(toast?.textContent).toContain('Inspector: OFF');
+  });
+
+  it('debounces rapid toggle calls within short interval', () => {
+    const inspector = createInspector();
+    expect(inspector.isEnabled()).toBe(false);
+
+    // First toggle: ON
+    const firstState = inspector.toggle();
+    expect(firstState).toBe(true);
+
+    // Immediate second toggle within 50ms should be debounced and remain ON
+    const secondState = inspector.toggle();
+    expect(secondState).toBe(true);
+    expect(inspector.isEnabled()).toBe(true);
+  });
 });

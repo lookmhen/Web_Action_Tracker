@@ -154,7 +154,10 @@ export function setupPopupHandlers(deps: PopupDeps) {
       type: 'TOGGLE_INSPECTOR',
       tabId: activeTab?.id
     });
-    showToast('Toggled Inspector (Alt+X)');
+    // Close popup window so user can directly inspect elements on the active page
+    if (typeof window !== 'undefined' && window.close) {
+      window.close();
+    }
   });
 
   btnReplay?.addEventListener('click', async () => {
@@ -255,7 +258,10 @@ if (typeof chrome !== 'undefined' && chrome.tabs && chrome.runtime) {
   setupPopupHandlers({
     sendMessage: (msg) => chrome.runtime.sendMessage(msg),
     getActiveTab: async () => {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      let tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (!tabs || tabs.length === 0) {
+        tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      }
       return { id: tabs[0]?.id, url: tabs[0]?.url };
     }
   });
