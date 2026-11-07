@@ -101,13 +101,24 @@ export function flushPendingInputs(): void {
 export function setupContentScript(): void {
   if (typeof window === 'undefined') return;
 
-  // Prevent duplicate script execution or listener accumulation in the same window
+  // If a previous inspector instance was running, disable it cleanly first
+  if ((window as any).__wat_inspector_instance__) {
+    try {
+      ((window as any).__wat_inspector_instance__).disable();
+    } catch {}
+  }
+  document.getElementById('__wat_inspector_box__')?.remove();
+  document.getElementById('__wat_inspector_card__')?.remove();
+  document.getElementById('__wat_inspector_toast__')?.remove();
+
+  inspector = createInspector();
+  (window as any).__wat_inspector_instance__ = inspector;
+
+  // Prevent duplicate event listener accumulation on the window
   if ((window as any).__WAT_CONTENT_SCRIPT_INITIALIZED__) {
     return;
   }
   (window as any).__WAT_CONTENT_SCRIPT_INITIALIZED__ = true;
-
-  inspector = createInspector();
 
   // Listen for DOM events in capture phase
   const eventTypes = ['click', 'input', 'change', 'keydown'];

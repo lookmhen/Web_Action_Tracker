@@ -167,9 +167,12 @@ describe('Service Worker State Manager', () => {
     expect(queriedOptions).toEqual({ active: true, lastFocusedWindow: true });
     expect(tabsMock.sendMessage).toHaveBeenCalledWith(777, { type: 'SET_INSPECTOR', enabled: true });
 
-    // Calling toggleInspector again turns it OFF with enabled: false
-    // Advance time slightly to bypass debounce
-    await new Promise(r => setTimeout(r, 350));
+    // Immediate second call within 100ms is debounced to prevent double-toggle
+    const debouncedState = await sw.toggleInspector();
+    expect(debouncedState).toBe(true);
+
+    // Advance time beyond 500ms debounce window to turn it OFF
+    await new Promise(r => setTimeout(r, 550));
     const isInspectingOff = await sw.toggleInspector();
     expect(isInspectingOff).toBe(false);
     expect(tabsMock.sendMessage).toHaveBeenLastCalledWith(777, { type: 'SET_INSPECTOR', enabled: false });

@@ -125,7 +125,7 @@ export class ServiceWorkerStateManager {
   public async toggleInspector(tabId?: number, forceState?: boolean): Promise<boolean> {
     await this.readyPromise;
     const now = Date.now();
-    if (forceState === undefined && now - this.lastInspectorToggleTime < 300) {
+    if (forceState === undefined && now - this.lastInspectorToggleTime < 500) {
       return this.state.isInspecting;
     }
     this.lastInspectorToggleTime = now;

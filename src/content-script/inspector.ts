@@ -172,6 +172,7 @@ export function createInspector(): InspectorController {
       toast = document.createElement('div');
       toast.id = '__wat_inspector_toast__';
       toast.style.position = 'fixed';
+      toast.style.pointerEvents = 'none';
       toast.style.bottom = '24px';
       toast.style.right = '24px';
       toast.style.zIndex = '2147483647';
@@ -322,18 +323,6 @@ export function createInspector(): InspectorController {
       disable();
       if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         chrome.runtime.sendMessage({ type: 'INSPECTOR_STATE_CHANGED', enabled: false }).catch(() => {});
-      }
-      return;
-    }
-
-    if (e.altKey && (e.key === 'x' || e.key === 'X')) {
-      e.preventDefault();
-      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-        chrome.runtime.sendMessage({ type: 'TOGGLE_INSPECTOR' }).catch(() => {
-          toggle();
-        });
-      } else {
-        toggle();
       }
     }
   }
