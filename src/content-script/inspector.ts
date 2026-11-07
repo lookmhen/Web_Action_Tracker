@@ -7,6 +7,16 @@ export interface InspectorController {
   isEnabled: () => boolean;
 }
 
+function escapeHtml(str?: string | null): string {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export function createInspector(): InspectorController {
   let enabled = false;
   let currentTarget: HTMLElement | null = null;
@@ -104,14 +114,16 @@ export function createInspector(): InspectorController {
     const selectors = resolveElementSelectors(target);
     const bestSelector = computeBestSelector(selectors);
 
-    const tagRole = selectors.role ? `<${selectors.tag}> (role: ${selectors.role})` : `<${selectors.tag}>`;
+    const tagRole = selectors.role 
+      ? `&lt;${escapeHtml(selectors.tag)}&gt; (role: ${escapeHtml(selectors.role)})` 
+      : `&lt;${escapeHtml(selectors.tag)}&gt;`;
     const idOrTestId = selectors.testId 
-      ? `testid: <span style="color:#38bdf8">${selectors.testId}</span>` 
-      : (selectors.id ? `id: <span style="color:#a78bfa">#${selectors.id}</span>` : '');
+      ? `testid: <span style="color:#38bdf8">${escapeHtml(selectors.testId)}</span>` 
+      : (selectors.id ? `id: <span style="color:#a78bfa">#${escapeHtml(selectors.id)}</span>` : '');
     const classes = selectors.classes && selectors.classes.length > 0
-      ? `class: <span style="color:#94a3b8">.${selectors.classes.join('.')}</span>`
+      ? `class: <span style="color:#94a3b8">.${escapeHtml(selectors.classes.join('.'))}</span>`
       : '';
-    const textPreview = selectors.text ? `text: <span style="color:#fbbf24">"${selectors.text}"</span>` : '';
+    const textPreview = selectors.text ? `text: <span style="color:#fbbf24">"${escapeHtml(selectors.text)}"</span>` : '';
 
     card.innerHTML = `
       <div style="font-weight:700; color:#60a5fa; margin-bottom:2px;">${tagRole}</div>
@@ -119,7 +131,7 @@ export function createInspector(): InspectorController {
       ${classes ? `<div>${classes}</div>` : ''}
       ${textPreview ? `<div>${textPreview}</div>` : ''}
       <div style="margin-top:4px; padding-top:4px; border-top:1px solid #334155; color:#34d399; font-weight:600;">
-        ${bestSelector}
+        ${escapeHtml(bestSelector)}
       </div>
       <div style="font-size:9px; color:#64748b; margin-top:2px;">Click to copy selector</div>
     `;
@@ -175,7 +187,6 @@ export function createInspector(): InspectorController {
     ensureElements();
     window.addEventListener('mouseover', handleMouseOver, true);
     window.addEventListener('click', handleClick, true);
-    window.addEventListener('keydown', handleKeyDown, true);
   }
 
   function disable() {

@@ -72,4 +72,23 @@ describe('Playwright Exporter', () => {
     expect(script).toContain("await page.goto('https://example.com');");
     expect(script).toContain('// No user actions recorded');
   });
+
+  it('escapes single quotes in accessible name and text locators', () => {
+    const sessionWithQuotes: RecordedSession = {
+      sessionId: 'rec_quotes',
+      metadata: { startUrl: 'https://example.com', userAgent: 'Chrome', viewport: { width: 1000, height: 800 }, startedAt: 100 },
+      events: [
+        {
+          id: '1',
+          category: 'action',
+          type: 'click',
+          timestamp: 101,
+          url: 'https://example.com',
+          selectors: { tag: 'button', role: 'button', name: "Don't Save", css: "button[name=\"don't\"]" }
+        }
+      ]
+    };
+    const script = exportToPlaywright(sessionWithQuotes);
+    expect(script).toContain("page.getByRole('button', { name: 'Don\\'t Save' })");
+  });
 });

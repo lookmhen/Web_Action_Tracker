@@ -4,18 +4,18 @@ function computePlaywrightLocator(action: ActionEvent): string {
   const s = action.selectors;
 
   if (s.testId) {
-    return `page.getByTestId('${s.testId}')`;
+    return `page.getByTestId('${escapeString(s.testId)}')`;
   }
   if (s.role && s.name) {
-    return `page.getByRole('${s.role}', { name: '${s.name}' })`;
+    return `page.getByRole('${escapeString(s.role)}', { name: '${escapeString(s.name)}' })`;
   }
   if (s.id) {
-    return `page.locator('#${s.id}')`;
+    return `page.locator('#${escapeString(s.id)}')`;
   }
   if (s.text && (s.tag === 'button' || s.tag === 'a')) {
-    return `page.getByText('${s.text}')`;
+    return `page.getByText('${escapeString(s.text)}')`;
   }
-  return `page.locator('${s.css}')`;
+  return `page.locator('${escapeString(s.css)}')`;
 }
 
 function escapeString(val: string): string {

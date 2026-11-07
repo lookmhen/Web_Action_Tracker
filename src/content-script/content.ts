@@ -88,6 +88,16 @@ function sendToServiceWorker(event: TrackedEvent) {
 // Input debounce map
 const inputDebounceTimers = new Map<Element, number>();
 
+export function flushPendingInputs(): void {
+  for (const [target, timer] of inputDebounceTimers.entries()) {
+    window.clearTimeout(timer);
+    const syntheticEvent = new Event('input', { bubbles: true });
+    Object.defineProperty(syntheticEvent, 'target', { value: target });
+    handleDomEvent(syntheticEvent, sendToServiceWorker);
+  }
+  inputDebounceTimers.clear();
+}
+
 export function setupContentScript(): void {
   if (typeof window === 'undefined') return;
 
@@ -112,6 +122,10 @@ export function setupContentScript(): void {
           }, 300);
           inputDebounceTimers.set(target, timer);
         } else {
+          // Flush any pending debounced inputs first to maintain chronological step order
+          if (type === 'click' || type === 'keydown') {
+            flushPendingInputs();
+          }
           handleDomEvent(e, sendToServiceWorker);
         }
       },

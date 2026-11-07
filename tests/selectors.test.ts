@@ -44,4 +44,14 @@ describe('Selector Resolution Engine', () => {
     expect(selectors.classes).not.toContain('sc-bwzfXH');
     expect(selectors.text?.length).toBeLessThanOrEqual(30);
   });
+
+  it('safely handles Tailwind classes with colons and slashes without DOMException', () => {
+    const btn = document.createElement('button');
+    btn.className = 'btn hover:bg-blue-600 w-1/2 p-2.5';
+    document.body.appendChild(btn);
+
+    expect(() => resolveElementSelectors(btn)).not.toThrow();
+    const selectors = resolveElementSelectors(btn);
+    expect(selectors.css).toBeTruthy();
+  });
 });

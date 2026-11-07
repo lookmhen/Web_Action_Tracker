@@ -5,6 +5,9 @@ export class ServiceWorkerStateManager {
   private storage: chrome.storage.StorageArea;
   private actionApi?: typeof chrome.action;
   private tabsApi?: typeof chrome.tabs;
+  private readyPromise: Promise<void>;
+  private isExecutingStep = false;
+  private replayStepTimer: any = null;
 
   constructor(
     storage: chrome.storage.StorageArea,
@@ -20,19 +23,27 @@ export class ServiceWorkerStateManager {
       isInspecting: false
     };
 
-    // Restore state from storage if exists
-    this.storage.get(['wat_state', 'wat_current_session'], (items) => {
-      if (items?.wat_state) {
-        this.state = items.wat_state;
-      }
-      if (items?.wat_current_session) {
-        this.state.currentSession = items.wat_current_session;
-      }
-      this.updateBadge();
+    // Restore state from storage if exists, track via readyPromise
+    this.readyPromise = new Promise((resolve) => {
+      this.storage.get(['wat_state', 'wat_current_session'], (items) => {
+        if (items?.wat_state) {
+          this.state = items.wat_state;
+        }
+        if (items?.wat_current_session) {
+          this.state.currentSession = items.wat_current_session;
+        }
+        this.updateBadge();
+        resolve();
+      });
     });
   }
 
-  public getState(): ExtensionState {
+  public async whenReady(): Promise<void> {
+    await this.readyPromise;
+  }
+
+  public async getState(): Promise<ExtensionState> {
+    await this.readyPromise;
     return { ...this.state };
   }
 
@@ -42,6 +53,7 @@ export class ServiceWorkerStateManager {
     userAgent = 'Chrome',
     viewport = { width: 1920, height: 1080 }
   ): Promise<void> {
+    await this.readyPromise;
     const session = createNewSession(startUrl, userAgent, viewport);
     this.state = {
       status: 'RECORDING',
@@ -60,6 +72,7 @@ export class ServiceWorkerStateManager {
   }
 
   public async recordEvent(event: TrackedEvent, fromTabId?: number): Promise<void> {
+    await this.readyPromise;
     if (this.state.status !== 'RECORDING') return;
     if (fromTabId !== undefined && this.state.activeTabId !== undefined && fromTabId !== this.state.activeTabId) {
       return; // Ignore events from unmonitored tabs
@@ -75,6 +88,7 @@ export class ServiceWorkerStateManager {
   }
 
   public async stopRecording(): Promise<RecordedSession> {
+    await this.readyPromise;
     const session = this.state.currentSession || createNewSession('', '', { width: 1920, height: 1080 });
     session.metadata.endedAt = Date.now();
 
@@ -102,6 +116,7 @@ export class ServiceWorkerStateManager {
   }
 
   public async toggleInspector(tabId?: number): Promise<boolean> {
+    await this.readyPromise;
     this.state.isInspecting = !this.state.isInspecting;
     await this.persist();
 
@@ -114,8 +129,15 @@ export class ServiceWorkerStateManager {
   }
 
   public async startReplay(session: RecordedSession, tabId: number): Promise<void> {
+    await this.readyPromise;
     const actions = session.events.filter(isActionEvent);
     if (actions.length === 0) return;
+
+    if (this.replayStepTimer) {
+      clearTimeout(this.replayStepTimer);
+      this.replayStepTimer = null;
+    }
+    this.isExecutingStep = false;
 
     this.state = {
       status: 'REPLAYING',
@@ -142,17 +164,25 @@ export class ServiceWorkerStateManager {
   }
 
   public async executeNextReplayStep(tabId: number): Promise<void> {
+    await this.readyPromise;
     if (this.state.status !== 'REPLAYING' || !this.state.currentSession) return;
+    if (this.isExecutingStep) return;
+
+    if (this.replayStepTimer) {
+      clearTimeout(this.replayStepTimer);
+      this.replayStepTimer = null;
+    }
 
     const actions = this.state.currentSession.events.filter(isActionEvent);
     const index = this.state.replayingStepIndex ?? 0;
 
     if (index >= actions.length) {
       // Replay finished
-      this.stopReplay();
+      await this.stopReplay();
       return;
     }
 
+    this.isExecutingStep = true;
     const nextAction = actions[index];
     this.state.replayingStepIndex = index + 1;
     await this.persist();
@@ -165,21 +195,32 @@ export class ServiceWorkerStateManager {
           index
         });
 
+        this.isExecutingStep = false;
+
         if (response?.success) {
-          // Continue to next action after delay
-          setTimeout(() => {
+          // Schedule next step with timer handle
+          this.replayStepTimer = setTimeout(() => {
             this.executeNextReplayStep(tabId);
           }, 350);
         } else {
           console.warn('Replay step halted:', response?.error);
         }
       } catch (err) {
+        this.isExecutingStep = false;
         console.warn('Tab navigation or communication delay during replay:', err);
       }
+    } else {
+      this.isExecutingStep = false;
     }
   }
 
   public async stopReplay(): Promise<void> {
+    await this.readyPromise;
+    if (this.replayStepTimer) {
+      clearTimeout(this.replayStepTimer);
+      this.replayStepTimer = null;
+    }
+    this.isExecutingStep = false;
     this.state.status = 'IDLE';
     this.state.replayingStepIndex = undefined;
     await this.storage.remove(['wat_replay_queue', 'wat_replay_step']);
@@ -216,8 +257,8 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
 
     switch (message.type) {
       case 'GET_STATE':
-        sendResponse(manager.getState());
-        break;
+        manager.getState().then((state) => sendResponse(state));
+        return true;
 
       case 'START_RECORDING':
         manager.startRecording(

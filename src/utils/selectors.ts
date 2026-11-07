@@ -91,9 +91,17 @@ export function generateCssSelector(element: Element): string {
   const tag = element.tagName.toLowerCase();
   const stableClasses = filterStableClasses(element.classList);
   if (stableClasses.length > 0) {
-    const classSelector = `${tag}.${stableClasses.join('.')}`;
-    if (document.querySelectorAll(classSelector).length === 1) {
-      return classSelector;
+    try {
+      const escapeFn = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape
+        : (str: string) => str.replace(/([:\[\]\/\\#.,?*+~'`!@$^=<>|{}()])/g, '\\$1');
+      const escaped = stableClasses.map(escapeFn).join('.');
+      const classSelector = `${tag}.${escaped}`;
+      if (document.querySelectorAll(classSelector).length === 1) {
+        return classSelector;
+      }
+    } catch {
+      // Fall through to parent path generation if selector query fails
     }
   }
 

@@ -44,8 +44,9 @@ describe('Service Worker State Manager', () => {
 
   it('starts recording and updates state and badge', async () => {
     await manager.startRecording(101, 'https://app.example.com', 'Mozilla/5.0', { width: 1920, height: 1080 });
-    expect(manager.getState().status).toBe('RECORDING');
-    expect(manager.getState().activeTabId).toBe(101);
+    const state = await manager.getState();
+    expect(state.status).toBe('RECORDING');
+    expect(state.activeTabId).toBe(101);
     expect(mockBadge.text).toBe('REC');
     expect(mockStorage['wat_state']?.status).toBe('RECORDING');
   });
@@ -59,7 +60,7 @@ describe('Service Worker State Manager', () => {
     };
     await manager.recordEvent(action1, 101);
 
-    expect(manager.getState().currentSession?.events.length).toBe(1);
+    expect((await manager.getState()).currentSession?.events.length).toBe(1);
     expect(mockBadge.text).toBe('1');
 
     // Ignores event from different tabId
@@ -68,16 +69,46 @@ describe('Service Worker State Manager', () => {
       selectors: { tag: 'button', css: 'button' }
     };
     await manager.recordEvent(action2, 999);
-    expect(manager.getState().currentSession?.events.length).toBe(1);
+    expect((await manager.getState()).currentSession?.events.length).toBe(1);
   });
 
   it('stops recording and saves final session', async () => {
     await manager.startRecording(101, 'https://app.example.com', 'Mozilla/5.0', { width: 1920, height: 1080 });
     const session = await manager.stopRecording();
 
-    expect(manager.getState().status).toBe('IDLE');
+    expect((await manager.getState()).status).toBe('IDLE');
     expect(session.metadata.endedAt).toBeDefined();
     expect(mockBadge.text).toBe('');
     expect(mockStorage['wat_last_session']).toEqual(session);
+  });
+
+  it('awaits storage restoration on service worker wakeup before recording event', async () => {
+    let delayedStorageCb: any;
+    const delayedStorage = {
+      get: vi.fn((keys: any, cb: any) => {
+        delayedStorageCb = () => cb({
+          wat_state: { status: 'RECORDING', isInspecting: false, activeTabId: 101 },
+          wat_current_session: {
+            sessionId: 'rec_wake',
+            metadata: { startUrl: 'https://app.com', userAgent: 'Chrome', viewport: { width: 1000, height: 800 }, startedAt: 100 },
+            events: []
+          }
+        });
+      }),
+      set: vi.fn((items: any, cb?: () => void) => { cb && cb(); })
+    };
+
+    const sw = new ServiceWorkerStateManager(delayedStorage as any);
+    // Simulate event arrives before storage callback finished
+    const eventPromise = sw.recordEvent({
+      id: 'e1', category: 'action', type: 'click', timestamp: 102, url: 'https://app.com',
+      selectors: { tag: 'button', css: 'button' }
+    }, 101);
+
+    // Now trigger storage restoration callback
+    delayedStorageCb();
+    await eventPromise;
+
+    expect((await sw.getState()).currentSession?.events.length).toBe(1);
   });
 });
