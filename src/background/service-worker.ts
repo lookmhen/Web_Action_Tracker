@@ -1,4 +1,4 @@
-import { ExtensionState, ExtensionStatus, RecordedSession, TrackedEvent, createNewSession, isActionEvent } from '../types/schema';
+import { ExtensionState, ExtensionStatus, RecordedSession, TrackedEvent, NavigationEvent, createNewSession, isActionEvent } from '../types/schema';
 
 export class ServiceWorkerStateManager {
   private state: ExtensionState;
@@ -33,7 +33,7 @@ export class ServiceWorkerStateManager {
         if (items?.wat_current_session) {
           this.state.currentSession = items.wat_current_session;
         }
-        this.updateBadge();
+        this.restoreBadge();
         resolve();
       });
     });
@@ -85,6 +85,55 @@ export class ServiceWorkerStateManager {
 
       const actionCount = this.state.currentSession.events.filter(isActionEvent).length;
       this.updateBadge(String(actionCount), '#ef4444');
+    }
+  }
+
+  public async recordNavigation(tabId: number, fromUrl: string, toUrl: string): Promise<void> {
+    await this.readyPromise;
+    if (this.state.status !== 'RECORDING') return;
+    if (this.state.activeTabId !== undefined && tabId !== this.state.activeTabId) return;
+    if (!toUrl || toUrl === fromUrl) return;
+
+    const navEvent: NavigationEvent = {
+      id: `nav_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      category: 'navigation',
+      timestamp: Date.now(),
+      fromUrl,
+      toUrl
+    };
+
+    if (this.state.currentSession) {
+      this.state.currentSession.events.push(navEvent);
+      await this.persist();
+    }
+  }
+
+  public async handleTabTargetCreated(sourceTabId: number, targetTabId: number, url?: string): Promise<void> {
+    await this.readyPromise;
+    if (this.state.status !== 'RECORDING') return;
+    if (this.state.activeTabId !== undefined && sourceTabId !== this.state.activeTabId) return;
+
+    // Transfer activeTabId to the newly opened tab
+    this.state.activeTabId = targetTabId;
+
+    if (url) {
+      const lastUrl = this.state.currentSession?.events?.slice().reverse().find(e => (e as any).url)?.url
+        || this.state.currentSession?.metadata.startUrl || '';
+      const navEvent: NavigationEvent = {
+        id: `nav_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        category: 'navigation',
+        timestamp: Date.now(),
+        fromUrl: lastUrl,
+        toUrl: url
+      };
+      this.state.currentSession?.events.push(navEvent);
+    }
+
+    await this.persist();
+
+    // Notify new tab
+    if (this.tabsApi?.sendMessage) {
+      this.tabsApi.sendMessage(targetTabId, { type: 'STATUS_CHANGE', status: 'RECORDING' }).catch(() => {});
     }
   }
 
@@ -289,6 +338,17 @@ export class ServiceWorkerStateManager {
     });
   }
 
+  public restoreBadge(): void {
+    if (this.state.status === 'RECORDING') {
+      const actionCount = this.state.currentSession?.events?.filter(isActionEvent).length ?? 0;
+      this.updateBadge(actionCount > 0 ? String(actionCount) : 'REC', '#ef4444');
+    } else if (this.state.status === 'REPLAYING') {
+      this.updateBadge('RPL', '#3b82f6');
+    } else {
+      this.updateBadge('', '#000000');
+    }
+  }
+
   private updateBadge(text = '', color = '#ef4444'): void {
     if (this.actionApi) {
       this.actionApi.setBadgeText({ text });
@@ -381,6 +441,10 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
     if (changeInfo.status === 'complete') {
       manager.getState().then((state) => {
         if (state.status === 'RECORDING' && state.activeTabId === tabId) {
+          // Re-affirm badge on page reload so it never vanishes
+          manager.restoreBadge();
+          // Explicitly notify content script of recording status
+          chrome.tabs.sendMessage(tabId, { type: 'STATUS_CHANGE', status: 'RECORDING' }).catch(() => {});
           if (chrome.scripting) {
             chrome.scripting.executeScript({
               target: { tabId },
@@ -394,6 +458,24 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
         }
       });
     }
+  });
+
+  // Track navigations in recording tab (commits to new URL)
+  chrome.webNavigation?.onCommitted?.addListener((details) => {
+    if (details.frameId === 0) {
+      manager.getState().then((state) => {
+        if (state.status === 'RECORDING' && state.activeTabId === details.tabId) {
+          const lastUrl = state.currentSession?.events?.slice().reverse().find(e => (e as any).url)?.url
+            || state.currentSession?.metadata.startUrl || '';
+          manager.recordNavigation(details.tabId, lastUrl, details.url);
+        }
+      });
+    }
+  });
+
+  // Track target tab created (e.g. link with target="_blank" or window.open)
+  chrome.webNavigation?.onCreatedNavigationTarget?.addListener((details) => {
+    manager.handleTabTargetCreated(details.sourceTabId, details.tabId, details.url);
   });
 
   // Listen for keyboard command toggle-inspector from manifest

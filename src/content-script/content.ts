@@ -208,9 +208,27 @@ export function setupContentScript(): void {
   }
 
   // Check initial state from service worker / storage
+  if (chrome?.runtime?.sendMessage) {
+    try {
+      chrome.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
+        if (!chrome.runtime.lastError && response?.status === 'RECORDING') {
+          isRecording = true;
+        }
+      });
+    } catch {}
+  }
+
+  if (chrome?.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.wat_state) {
+        isRecording = changes.wat_state.newValue?.status === 'RECORDING';
+      }
+    });
+  }
+
   if (chrome?.storage?.local) {
     chrome.storage.local.get(['wat_state', 'wat_replay_queue'], (items) => {
-      if (items.wat_state?.status === 'RECORDING') {
+      if (items?.wat_state?.status === 'RECORDING') {
         isRecording = true;
       }
 

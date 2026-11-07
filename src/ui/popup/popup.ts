@@ -1,4 +1,4 @@
-import { RecordedSession, ExtensionState, TrackedEvent, isActionEvent, isNetworkEvent, isConsoleEvent } from '../../types/schema';
+import { RecordedSession, ExtensionState, TrackedEvent, isActionEvent, isNetworkEvent, isConsoleEvent, isNavigationEvent } from '../../types/schema';
 import { exportToMarkdown } from '../../exporters/markdown';
 import { exportToPlaywright } from '../../exporters/playwright';
 import { exportToJson, importFromJson } from '../../exporters/json';
@@ -108,6 +108,14 @@ export function setupPopupHandlers(deps: PopupDeps) {
         text = `Console: ${e.message}`;
         isFailure = true;
         failures++;
+      } else if (isNavigationEvent(e)) {
+        icon = '🔗';
+        try {
+          const parsed = new URL(e.toUrl);
+          text = `Navigate: ${parsed.pathname || '/'}`;
+        } catch {
+          text = `Navigate: ${e.toUrl}`;
+        }
       }
 
       return `
@@ -239,11 +247,19 @@ export function setupPopupHandlers(deps: PopupDeps) {
     if (state?.status) {
       renderStatus(state.status);
     }
-    if (state?.currentSession) {
+    if (state?.currentSession && state.currentSession.events.length > 0) {
       currentSession = state.currentSession;
       renderTimeline(currentSession);
     } else if (currentSession) {
       renderTimeline(currentSession);
+    } else if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      chrome.storage.local.get(['wat_current_session', 'wat_last_session'], (items) => {
+        const fallback = items.wat_current_session || items.wat_last_session;
+        if (fallback && fallback.events?.length > 0) {
+          currentSession = fallback;
+          renderTimeline(currentSession);
+        }
+      });
     }
   });
 
