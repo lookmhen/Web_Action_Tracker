@@ -21,6 +21,83 @@ export function sanitizeHeaders(headers: Record<string, string>): Record<string,
   return result;
 }
 
+export function sanitizePayload(body: any, maxLen = 1024): string {
+  if (!body) return '';
+
+  const SENSITIVE_KEY_REGEX = /(password|token|secret|auth|api_?key|credential)/i;
+
+  function maskObject(obj: any): any {
+    if (obj === null || typeof obj !== 'object') {
+      return obj;
+    }
+    if (Array.isArray(obj)) {
+      return obj.map(item => maskObject(item));
+    }
+    const masked: Record<string, any> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (typeof value === 'object' && value !== null) {
+        if (Array.isArray(value) && SENSITIVE_KEY_REGEX.test(key)) {
+          masked[key] = '[REDACTED]';
+        } else {
+          masked[key] = maskObject(value);
+        }
+      } else if (SENSITIVE_KEY_REGEX.test(key)) {
+        masked[key] = '[REDACTED]';
+      } else {
+        masked[key] = value;
+      }
+    }
+    return masked;
+  }
+
+  let rawStr = '';
+
+  if (typeof body === 'string') {
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed && typeof parsed === 'object') {
+        const masked = maskObject(parsed);
+        return truncatePayload(JSON.stringify(masked), maxLen);
+      }
+    } catch {
+      // Not JSON, continue to string sanitization
+    }
+    rawStr = body;
+  } else if (typeof body === 'object') {
+    if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+      const params = new URLSearchParams();
+      body.forEach((val, key) => {
+        params.append(key, SENSITIVE_KEY_REGEX.test(key) ? '[REDACTED]' : val);
+      });
+      return truncatePayload(params.toString(), maxLen);
+    } else if (typeof FormData !== 'undefined' && body instanceof FormData) {
+      const entries: string[] = [];
+      body.forEach((val, key) => {
+        const displayVal = SENSITIVE_KEY_REGEX.test(key) ? '[REDACTED]' : (typeof val === 'string' ? val : '[File]');
+        entries.push(`${key}=${displayVal}`);
+      });
+      return truncatePayload(entries.join('&'), maxLen);
+    } else {
+      try {
+        const masked = maskObject(body);
+        return truncatePayload(JSON.stringify(masked), maxLen);
+      } catch {
+        rawStr = String(body);
+      }
+    }
+  } else {
+    rawStr = String(body);
+  }
+
+  // Fallback string sanitization for urlencoded or query formats
+  const sanitizedStr = rawStr.replace(
+    /((?:password|token|secret|auth|api_?key|credential)=)[^&]+/gi,
+    '$1[REDACTED]'
+  );
+
+  return truncatePayload(sanitizedStr, maxLen);
+}
+
 function emitTelemetry(event: NetworkEvent | ConsoleEvent): void {
   try {
     window.postMessage({ source: TELEMETRY_SOURCE, event }, '*');
@@ -75,7 +152,8 @@ export function setupMainWorldInterception(): void {
             requestUrl,
             status: response.status,
             durationMs,
-            responsePreview
+            responsePreview,
+            requestPayload: init?.body ? sanitizePayload(init.body) : undefined
           };
           emitTelemetry(networkEvent);
         }
@@ -93,7 +171,8 @@ export function setupMainWorldInterception(): void {
           requestUrl,
           status: 0,
           durationMs,
-          error: error?.message || 'Network error / fetch failed'
+          error: error?.message || 'Network error / fetch failed',
+          requestPayload: init?.body ? sanitizePayload(init.body) : undefined
         };
         emitTelemetry(networkEvent);
         throw error;
@@ -107,7 +186,7 @@ export function setupMainWorldInterception(): void {
     const originalSend = XMLHttpRequest.prototype.send;
 
     XMLHttpRequest.prototype.open = function (
-      this: XMLHttpRequest & { _watMethod?: string; _watUrl?: string; _watStartTime?: number },
+      this: XMLHttpRequest & { _watMethod?: string; _watUrl?: string; _watStartTime?: number; _watPayload?: string },
       method: string,
       url: string | URL,
       ...rest: any[]
@@ -118,10 +197,17 @@ export function setupMainWorldInterception(): void {
     };
 
     XMLHttpRequest.prototype.send = function (
-      this: XMLHttpRequest & { _watMethod?: string; _watUrl?: string; _watStartTime?: number },
+      this: XMLHttpRequest & { _watMethod?: string; _watUrl?: string; _watStartTime?: number; _watPayload?: string },
       body?: Document | XMLHttpRequestBodyInit | null
     ) {
       this._watStartTime = Date.now();
+      if (body) {
+        try {
+          this._watPayload = sanitizePayload(body);
+        } catch {
+          // ignore
+        }
+      }
 
       this.addEventListener('readystatechange', () => {
         if (this.readyState === 4) {
@@ -146,7 +232,8 @@ export function setupMainWorldInterception(): void {
               requestUrl: this._watUrl || '',
               status: this.status,
               durationMs,
-              responsePreview
+              responsePreview,
+              requestPayload: this._watPayload
             };
             emitTelemetry(networkEvent);
           }
