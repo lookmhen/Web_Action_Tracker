@@ -66,6 +66,11 @@ export function setupPopupHandlers(deps: PopupDeps) {
   const btnExportPw = document.getElementById('btn-export-pw');
   const btnExportJson = document.getElementById('btn-export-json');
   const inputImportJson = document.getElementById('input-import-json') as HTMLInputElement | null;
+  const btnPasteJson = document.getElementById('btn-paste-json');
+  const pasteModal = document.getElementById('paste-modal');
+  const pasteJsonInput = document.getElementById('paste-json-input') as HTMLTextAreaElement | null;
+  const btnPasteApply = document.getElementById('btn-paste-apply');
+  const btnPasteCancel = document.getElementById('btn-paste-cancel');
   const eventCountEl = document.getElementById('event-count');
   const failureCountEl = document.getElementById('failure-count');
   const eventListEl = document.getElementById('event-list');
@@ -350,6 +355,61 @@ export function setupPopupHandlers(deps: PopupDeps) {
       }
     };
     reader.readAsText(file);
+  });
+
+  btnPasteJson?.addEventListener('click', async () => {
+    let clipboardText = '';
+    try {
+      if (navigator.clipboard?.readText) {
+        clipboardText = await navigator.clipboard.readText();
+      }
+    } catch {
+      // Permission denied or blocked
+    }
+
+    if (clipboardText && clipboardText.trim().startsWith('{')) {
+      try {
+        const imported = importFromJson(clipboardText);
+        currentSession = imported;
+        renderTimeline(currentSession);
+        renderScreenshots(currentSession);
+        showToast(`Loaded ${imported.events.length} events from Clipboard!`);
+        if (pasteModal) pasteModal.style.display = 'none';
+        return;
+      } catch {
+        // Not a valid session JSON, continue to modal
+      }
+    }
+
+    if (pasteModal) {
+      pasteModal.style.display = pasteModal.style.display === 'none' ? 'block' : 'none';
+      if (pasteModal.style.display === 'block' && pasteJsonInput) {
+        pasteJsonInput.focus();
+      }
+    }
+  });
+
+  btnPasteApply?.addEventListener('click', () => {
+    const text = pasteJsonInput?.value || '';
+    if (!text.trim()) {
+      showToast('Please paste JSON first');
+      return;
+    }
+    try {
+      const imported = importFromJson(text);
+      currentSession = imported;
+      renderTimeline(currentSession);
+      renderScreenshots(currentSession);
+      showToast(`Loaded ${imported.events.length} events from JSON!`);
+      if (pasteModal) pasteModal.style.display = 'none';
+      if (pasteJsonInput) pasteJsonInput.value = '';
+    } catch (err: any) {
+      alert(`Failed to import JSON: ${err.message}`);
+    }
+  });
+
+  btnPasteCancel?.addEventListener('click', () => {
+    if (pasteModal) pasteModal.style.display = 'none';
   });
 
   // Init data

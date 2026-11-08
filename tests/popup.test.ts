@@ -33,6 +33,12 @@ describe('Popup UI Handlers', () => {
       <button id="btn-export-pw">Copy Playwright</button>
       <button id="btn-export-json">Export JSON</button>
       <input type="file" id="input-import-json" />
+      <button id="btn-paste-json">Paste JSON</button>
+      <div id="paste-modal" style="display: none;">
+        <textarea id="paste-json-input"></textarea>
+        <button id="btn-paste-apply">Load</button>
+        <button id="btn-paste-cancel">Cancel</button>
+      </div>
       <div id="event-list"></div>
       <div id="toast-msg"></div>
     `;
@@ -40,7 +46,8 @@ describe('Popup UI Handlers', () => {
     Object.assign(navigator, {
       clipboard: {
         writeText: vi.fn().mockResolvedValue(undefined),
-        write: vi.fn().mockResolvedValue(undefined)
+        write: vi.fn().mockResolvedValue(undefined),
+        readText: vi.fn().mockResolvedValue('')
       }
     });
 
@@ -152,5 +159,60 @@ describe('Popup UI Handlers', () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       expect.stringContaining('## 🐛 Bug Reproduction Report')
     );
+  });
+
+  it('pastes JSON from clipboard directly when clipboard contains valid session JSON', async () => {
+    const validJson = JSON.stringify(mockSession);
+    (navigator.clipboard.readText as any).mockResolvedValue(validJson);
+
+    const mockSend = vi.fn().mockResolvedValue({ success: true });
+    const mockGetActiveTab = vi.fn().mockResolvedValue({ id: 101, url: 'https://app.com' });
+
+    setupPopupHandlers({ sendMessage: mockSend, getActiveTab: mockGetActiveTab });
+
+    const btnPaste = document.getElementById('btn-paste-json') as HTMLButtonElement;
+    btnPaste.click();
+
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(document.getElementById('event-count')?.textContent).toBe('1');
+    expect(document.getElementById('toast-msg')?.textContent).toContain('Loaded 1 events');
+  });
+
+  it('opens paste modal if clipboard read fails or contains non-JSON', async () => {
+    (navigator.clipboard.readText as any).mockResolvedValue('not a json string');
+
+    const mockSend = vi.fn().mockResolvedValue({ success: true });
+    const mockGetActiveTab = vi.fn().mockResolvedValue({ id: 101, url: 'https://app.com' });
+
+    setupPopupHandlers({ sendMessage: mockSend, getActiveTab: mockGetActiveTab });
+
+    const btnPaste = document.getElementById('btn-paste-json') as HTMLButtonElement;
+    btnPaste.click();
+
+    await new Promise(r => setTimeout(r, 20));
+
+    const modal = document.getElementById('paste-modal') as HTMLElement;
+    expect(modal.style.display).toBe('block');
+  });
+
+  it('loads JSON when pasted manually into modal and apply button clicked', async () => {
+    const mockSend = vi.fn().mockResolvedValue({ success: true });
+    const mockGetActiveTab = vi.fn().mockResolvedValue({ id: 101, url: 'https://app.com' });
+
+    setupPopupHandlers({ sendMessage: mockSend, getActiveTab: mockGetActiveTab });
+
+    const modal = document.getElementById('paste-modal') as HTMLElement;
+    const input = document.getElementById('paste-json-input') as HTMLTextAreaElement;
+    const btnApply = document.getElementById('btn-paste-apply') as HTMLButtonElement;
+
+    modal.style.display = 'block';
+    input.value = JSON.stringify(mockSession);
+    btnApply.click();
+
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(modal.style.display).toBe('none');
+    expect(document.getElementById('event-count')?.textContent).toBe('1');
   });
 });

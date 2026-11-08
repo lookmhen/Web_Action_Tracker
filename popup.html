@@ -54,7 +54,7 @@
 
   <div class="export-section">
     <div class="export-title">
-      <span>Export Session</span>
+      <span>Export / Import Session</span>
     </div>
     <div class="export-buttons">
       <button id="btn-export-md" class="btn-export">Markdown</button>
@@ -64,9 +64,20 @@
 
     <div class="import-row">
       <label for="input-import-json" class="file-label">
-        📂 Import JSON to Replay
+        📂 File
       </label>
       <input type="file" id="input-import-json" accept=".json" style="display: none;" />
+      <button id="btn-paste-json" class="btn-paste">
+        📋 Paste JSON
+      </button>
+    </div>
+
+    <div id="paste-modal" class="paste-modal" style="display: none;">
+      <textarea id="paste-json-input" placeholder="Paste session JSON here..." rows="3"></textarea>
+      <div class="paste-modal-actions">
+        <button id="btn-paste-apply" class="btn-primary btn-paste-action">Load</button>
+        <button id="btn-paste-cancel" class="btn-secondary btn-paste-action">Cancel</button>
+      </div>
     </div>
   </div>
 
