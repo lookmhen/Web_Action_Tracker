@@ -155,4 +155,15 @@ describe('Main World Interception', () => {
       '*'
     );
   });
+
+  it('records listener function names on elements when addEventListener is called', () => {
+    setupMainWorldInterception();
+    const btn = document.createElement('button');
+    function onCheckoutClick() {}
+    btn.addEventListener('click', onCheckoutClick);
+
+    const listeners = (btn as any).__wat_listeners__?.['click'];
+    expect(listeners).toBeDefined();
+    expect(listeners).toContain('onCheckoutClick');
+  });
 });

@@ -289,6 +289,43 @@ export function setupMainWorldInterception(): void {
       emitTelemetry(consoleEvt);
     });
   }
+
+  // 5. Monkey-patch EventTarget.prototype.addEventListener to track element listener names
+  if (typeof EventTarget !== 'undefined' && EventTarget.prototype.addEventListener) {
+    const originalAddEventListener = EventTarget.prototype.addEventListener;
+    EventTarget.prototype.addEventListener = function (
+      this: EventTarget & { __wat_listeners__?: Record<string, string[]> },
+      type: string,
+      listener: EventListenerOrEventListenerObject | null,
+      options?: boolean | AddEventListenerOptions
+    ) {
+      if (listener && (this instanceof Element || (this as any).nodeType === 1)) {
+        try {
+          if (!this.__wat_listeners__) {
+            this.__wat_listeners__ = {};
+          }
+          if (!this.__wat_listeners__[type]) {
+            this.__wat_listeners__[type] = [];
+          }
+
+          let fnName = '';
+          if (typeof listener === 'function') {
+            fnName = listener.name || 'anonymous';
+          } else if (typeof listener === 'object' && typeof (listener as any).handleEvent === 'function') {
+            fnName = (listener as any).handleEvent.name || 'handleEvent';
+          }
+
+          if (fnName && !this.__wat_listeners__[type].includes(fnName)) {
+            this.__wat_listeners__[type].push(fnName);
+          }
+        } catch {
+          // Fail-safe
+        }
+      }
+
+      return originalAddEventListener.call(this, type, listener, options);
+    };
+  }
 }
 
 // Auto-initialize when loaded as a standalone script in MAIN world
