@@ -13,24 +13,59 @@ function formatDate(timestamp: number): string {
   return `${YYYY}-${MM}-${DD} ${hh}:${mm}:${ss}`;
 }
 
+function formatComponentTag(componentName: string, props?: Record<string, any>): string {
+  if (!props || Object.keys(props).length === 0) {
+    return `<${componentName} />`;
+  }
+  const propList = Object.entries(props)
+    .map(([k, v]) => {
+      if (typeof v === 'string') return `${k}="${v}"`;
+      if (typeof v === 'object') return `${k}={${JSON.stringify(v)}}`;
+      return `${k}=${v}`;
+    })
+    .join(' ');
+  return `<${componentName} ${propList} />`;
+}
+
 function formatActionStep(event: ActionEvent, index: number): string {
   const s = event.selectors;
   const targetDesc = computeTargetDescription(event);
   const bestSelector = computeBestSelector(s);
+  let mainLine = '';
 
   switch (event.type) {
     case 'click':
-      return `${index}. **Click:** ${targetDesc} (\`${bestSelector}\`)`;
+      mainLine = `${index}. **Click:** ${targetDesc} (\`${bestSelector}\`)`;
+      break;
     case 'input':
     case 'change': {
       const val = event.isSensitive ? '******' : (event.value ? `"${event.value}"` : '""');
-      return `${index}. **Type into:** ${targetDesc} (\`${bestSelector}\`) ➔ ${val}`;
+      mainLine = `${index}. **Type into:** ${targetDesc} (\`${bestSelector}\`) ➔ ${val}`;
+      break;
     }
     case 'keydown':
-      return `${index}. **Press Key:** \`${event.key || 'Unknown'}\` on ${targetDesc} (\`${bestSelector}\`)`;
+      mainLine = `${index}. **Press Key:** \`${event.key || 'Unknown'}\` on ${targetDesc} (\`${bestSelector}\`)`;
+      break;
     default:
-      return `${index}. **Action (${event.type}):** ${targetDesc} (\`${bestSelector}\`)`;
+      mainLine = `${index}. **Action (${event.type}):** ${targetDesc} (\`${bestSelector}\`)`;
+      break;
   }
+
+  const h = event.handler;
+  if (!h) {
+    return mainLine;
+  }
+
+  const subLines: string[] = [mainLine];
+  if (h.componentName) {
+    subLines.push(`   * **React Component:** \`${formatComponentTag(h.componentName, h.props)}\``);
+  }
+  const handlerLabel = h.name || h.raw;
+  if (handlerLabel) {
+    subLines.push(`   * **Handler:** \`${handlerLabel}\``);
+  }
+
+  return subLines.join('\n');
 }
 
 function computeTargetDescription(event: ActionEvent): string {

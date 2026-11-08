@@ -102,6 +102,28 @@ describe('Markdown Exporter', () => {
     expect(md).toContain('data:image/jpeg;base64,abc123mock');
   });
 
+  it('formats React component name, props, and handler in markdown steps', () => {
+    const session: RecordedSession = {
+      sessionId: 's1',
+      metadata: { startUrl: 'https://app.com', userAgent: 'Chrome', viewport: { width: 1920, height: 1080 }, startedAt: 100 },
+      events: [
+        {
+          id: '1', category: 'action', type: 'click', timestamp: 101, url: 'https://app.com',
+          selectors: { tag: 'button', id: 'btn-pay', css: '#btn-pay' },
+          handler: {
+            name: 'handlePayment',
+            componentName: 'OrderButton',
+            props: { orderId: 'ORD-999', total: 450 }
+          }
+        }
+      ]
+    };
+
+    const md = exportToMarkdown(session);
+    expect(md).toContain('<OrderButton orderId="ORD-999" total=450 />');
+    expect(md).toContain('**Handler:** `handlePayment`');
+  });
+
   it('handles empty session gracefully (Review Focus #1)', () => {
     const emptySession: RecordedSession = {
       sessionId: 'rec_empty',
