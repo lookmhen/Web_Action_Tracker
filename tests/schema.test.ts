@@ -10,7 +10,8 @@ import {
   ConsoleEvent,
   NavigationEvent,
   ScreenshotArtifact,
-  EnvironmentMetadata
+  EnvironmentMetadata,
+  ElementHandlerMetadata
 } from '../src/types/schema';
 
 describe('Data Schema & Type Guards', () => {
@@ -95,5 +96,30 @@ describe('Data Schema & Type Guards', () => {
     };
     expect(env.os).toBe('Windows');
     expect(env.devicePixelRatio).toBe(1.25);
+  });
+
+  it('validates ElementHandlerMetadata and ActionEvent.handler', () => {
+    const handler: ElementHandlerMetadata = {
+      name: 'handleCheckout',
+      raw: 'handleCheckout()',
+      source: 'react',
+      componentName: 'OrderButton',
+      props: { orderId: 'ORD-123', total: 450 }
+    };
+    const action: ActionEvent = {
+      id: 'act_handler_1',
+      category: 'action',
+      type: 'click',
+      timestamp: 200,
+      url: 'https://app.com',
+      selectors: { tag: 'button', css: '#btn-checkout' },
+      handler
+    };
+
+    expect(action.handler).toBeDefined();
+    expect(action.handler?.name).toBe('handleCheckout');
+    expect(action.handler?.componentName).toBe('OrderButton');
+    expect(action.handler?.props?.orderId).toBe('ORD-123');
+    expect(action.handler?.source).toBe('react');
   });
 });

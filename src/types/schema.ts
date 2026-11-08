@@ -37,6 +37,14 @@ export type TrackedEvent =
   | ConsoleEvent 
   | NavigationEvent;
 
+export interface ElementHandlerMetadata {
+  name?: string;
+  raw?: string;
+  source?: 'inline' | 'react' | 'vue' | 'listener' | 'attribute';
+  componentName?: string;
+  props?: Record<string, any>;
+}
+
 export interface ElementSelectors {
   tag: string;
   testId?: string;
@@ -58,6 +66,7 @@ export interface ActionEvent {
   value?: string;           // Masked if sensitive
   key?: string;             // For keydown (e.g. 'Enter', 'Tab')
   isSensitive?: boolean;
+  handler?: ElementHandlerMetadata;
 }
 
 export interface NetworkEvent {
