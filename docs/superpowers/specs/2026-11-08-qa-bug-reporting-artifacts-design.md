@@ -14,7 +14,7 @@ All visual assets follow a strict **Zero-Clutter Architecture** (FIFO cap of 3 i
 ### Goals
 - **Automated Failure Screenshots:** Automatically capture a compressed JPEG snapshot of the active tab when a network failure (HTTP 4xx/5xx/0) or console error occurs.
 - **Manual QA Snapshot:** Provide a "📸 Snapshot" button in the popup to capture the current state on demand.
-- **Zero Storage Bloat:** Strictly enforce a 3-image FIFO sliding window (~40–60 KB each, totaling <= 180 KB), automatically discarding the oldest image when a new one is captured.
+- **Generous Visual Evidence with Guaranteed Cleanup:** Store compressed JPEG snapshots (65% quality, ~40–60 KB each) captured automatically on failures and manually on demand (capped at a safe upper ceiling of 15 images per session to prevent runaway tab memory). All screenshots are strictly purged on every new session start or manual Clear.
 - **Automatic Garbage Cleanup:** Purge all previous screenshot data immediately when a new recording begins or when the user clicks "Clear".
 - **Request Payload Capture:** In `injected.js`, intercept and sanitize outgoing request bodies (JSON, text, FormData) on `fetch` and `XMLHttpRequest`, masking sensitive keys (`password`, `token`, `secret`, `apiKey`).
 - **Environment Context:** Collect OS, browser engine, screen resolution, viewport, device pixel ratio (DPR), language, and online status.
