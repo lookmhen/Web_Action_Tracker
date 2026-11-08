@@ -1,4 +1,14 @@
-import { ExtensionState, ExtensionStatus, RecordedSession, TrackedEvent, NavigationEvent, createNewSession, isActionEvent } from '../types/schema';
+import { 
+  ExtensionState, 
+  ExtensionStatus, 
+  RecordedSession, 
+  TrackedEvent, 
+  NavigationEvent, 
+  ScreenshotArtifact,
+  EnvironmentMetadata,
+  createNewSession, 
+  isActionEvent 
+} from '../types/schema';
 
 export class ServiceWorkerStateManager {
   private state: ExtensionState;
@@ -9,6 +19,8 @@ export class ServiceWorkerStateManager {
   private isExecutingStep = false;
   private replayStepTimer: any = null;
   private lastInspectorToggleTime = 0;
+  private lastErrorScreenshotTime = 0;
+  private readonly MAX_SCREENSHOTS = 15;
 
   constructor(
     storage: chrome.storage.StorageArea,
@@ -52,10 +64,16 @@ export class ServiceWorkerStateManager {
     tabId: number,
     startUrl: string,
     userAgent = 'Chrome',
-    viewport = { width: 1920, height: 1080 }
+    viewport = { width: 1920, height: 1080 },
+    environment?: EnvironmentMetadata
   ): Promise<void> {
     await this.readyPromise;
     const session = createNewSession(startUrl, userAgent, viewport);
+    session.screenshots = [];
+    if (environment) {
+      session.metadata.environment = environment;
+    }
+
     this.state = {
       status: 'RECORDING',
       isInspecting: this.state.isInspecting,
@@ -85,7 +103,117 @@ export class ServiceWorkerStateManager {
 
       const actionCount = this.state.currentSession.events.filter(isActionEvent).length;
       this.updateBadge(String(actionCount), '#ef4444');
+
+      // Auto-capture screenshot on network or console errors with 1000ms debounce
+      const isNetError = event.category === 'network' && (event.status >= 400 || event.status === 0);
+      const isConsoleError = event.category === 'console' && event.level === 'error';
+      if (isNetError || isConsoleError) {
+        const now = Date.now();
+        if (now - this.lastErrorScreenshotTime >= 1000) {
+          this.lastErrorScreenshotTime = now;
+          const trigger = isNetError ? 'error_network' : 'error_console';
+          const label = isNetError 
+            ? `HTTP ${event.status} on ${event.requestUrl}`
+            : (event.message || 'Console error');
+          const tabIdToCapture = fromTabId || this.state.activeTabId;
+          await this.captureScreenshot(trigger, tabIdToCapture, label);
+        }
+      }
     }
+  }
+
+  public async captureScreenshot(
+    trigger: ScreenshotArtifact['trigger'],
+    tabId?: number,
+    label?: string
+  ): Promise<ScreenshotArtifact | null> {
+    await this.readyPromise;
+    if (!this.state.currentSession) return null;
+
+    const targetTabId = tabId || this.state.activeTabId;
+    if (!targetTabId || !this.tabsApi) return null;
+
+    if (!this.state.currentSession.screenshots) {
+      this.state.currentSession.screenshots = [];
+    }
+
+    // Respect 15-screenshot ceiling
+    if (this.state.currentSession.screenshots.length >= this.MAX_SCREENSHOTS) {
+      return null;
+    }
+
+    // Verify tab is active for privacy
+    let tab: chrome.tabs.Tab | undefined;
+    try {
+      if (this.tabsApi.get) {
+        tab = await new Promise<chrome.tabs.Tab>((resolve, reject) => {
+          const res = this.tabsApi!.get!(targetTabId, (t) => {
+            if (t) resolve(t);
+            else reject(new Error('Tab not found'));
+          });
+          if (res instanceof Promise) res.then(resolve).catch(reject);
+        });
+      }
+    } catch {
+      return null;
+    }
+
+    if (!tab || !tab.active) {
+      return null;
+    }
+
+    // Capture visible tab as compressed JPEG 65% quality
+    let dataUrl: string | null = null;
+    try {
+      if (this.tabsApi.captureVisibleTab) {
+        dataUrl = await new Promise<string | null>((resolve) => {
+          const res = this.tabsApi!.captureVisibleTab!(
+            tab!.windowId,
+            { format: 'jpeg', quality: 65 },
+            (url) => {
+              if (typeof chrome !== 'undefined' && chrome.runtime?.lastError) {
+                resolve(null);
+              } else {
+                resolve(url || null);
+              }
+            }
+          );
+          if (res instanceof Promise) {
+            res.then(resolve).catch(() => resolve(null));
+          }
+        });
+      }
+    } catch {
+      return null;
+    }
+
+    if (!dataUrl) return null;
+
+    const artifact: ScreenshotArtifact = {
+      id: `shot_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: Date.now(),
+      trigger,
+      dataUrl,
+      url: tab.url || '',
+      label
+    };
+
+    this.state.currentSession.screenshots.push(artifact);
+    await this.persist();
+    return artifact;
+  }
+
+  public async clearSession(): Promise<void> {
+    await this.readyPromise;
+    if (this.state.currentSession) {
+      this.state.currentSession.events = [];
+      this.state.currentSession.screenshots = [];
+    } else {
+      this.state.currentSession = createNewSession('', '', { width: 1920, height: 1080 });
+      this.state.currentSession.screenshots = [];
+    }
+    await this.persist();
+    this.updateBadge('', '#000000');
   }
 
   public async recordNavigation(tabId: number, fromUrl: string, toUrl: string): Promise<void> {
@@ -379,7 +507,8 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
           message.tabId,
           message.startUrl,
           message.userAgent,
-          message.viewport
+          message.viewport,
+          message.environment
         ).then(() => {
           // Inject MAIN world script
           if (chrome.scripting) {
@@ -396,6 +525,22 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
       case 'STOP_RECORDING':
         manager.stopRecording().then((session) => {
           sendResponse({ success: true, session });
+        });
+        return true;
+
+      case 'CAPTURE_SCREENSHOT':
+        manager.captureScreenshot(
+          message.trigger || 'manual',
+          message.tabId,
+          message.label
+        ).then((artifact) => {
+          sendResponse({ success: true, artifact });
+        });
+        return true;
+
+      case 'CLEAR_SESSION':
+        manager.clearSession().then(() => {
+          sendResponse({ success: true });
         });
         return true;
 

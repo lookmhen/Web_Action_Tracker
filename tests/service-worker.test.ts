@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ServiceWorkerStateManager } from '../src/background/service-worker';
-import { ActionEvent } from '../src/types/schema';
+import { ActionEvent, NetworkEvent, ConsoleEvent, RecordedSession } from '../src/types/schema';
 
 describe('Service Worker State Manager', () => {
   let manager: ServiceWorkerStateManager;
   let mockStorage: Record<string, any>;
   let mockBadge: { text: string; color: string };
+  let mockTabsApi: any;
 
   beforeEach(() => {
     mockStorage = {};
@@ -39,12 +40,22 @@ describe('Service Worker State Manager', () => {
       setBadgeBackgroundColor: vi.fn((details: { color: string }) => { mockBadge.color = details.color; })
     };
 
-    const tabsApi = {
+    mockTabsApi = {
       update: vi.fn(),
-      sendMessage: vi.fn().mockResolvedValue({ success: true })
+      sendMessage: vi.fn().mockResolvedValue({ success: true }),
+      get: vi.fn().mockImplementation((tabId: number, cb?: (tab: any) => void) => {
+        const tab = { id: tabId, windowId: 1, active: true, url: 'https://app.example.com' };
+        if (cb) cb(tab);
+        return Promise.resolve(tab);
+      }),
+      captureVisibleTab: vi.fn().mockImplementation((winId: any, opts: any, cb?: (res: string) => void) => {
+        const res = 'data:image/jpeg;base64,mockjpegdata';
+        if (cb) cb(res);
+        return Promise.resolve(res);
+      })
     };
 
-    manager = new ServiceWorkerStateManager(storageArea as any, actionApi as any, tabsApi as any);
+    manager = new ServiceWorkerStateManager(storageArea as any, actionApi as any, mockTabsApi as any);
   });
 
   it('starts recording and updates state and badge', async () => {
@@ -104,13 +115,11 @@ describe('Service Worker State Manager', () => {
     };
 
     const sw = new ServiceWorkerStateManager(delayedStorage as any);
-    // Simulate event arrives before storage callback finished
     const eventPromise = sw.recordEvent({
       id: 'e1', category: 'action', type: 'click', timestamp: 102, url: 'https://app.com',
       selectors: { tag: 'button', css: 'button' }
     }, 101);
 
-    // Now trigger storage restoration callback
     delayedStorageCb();
     await eventPromise;
 
@@ -138,13 +147,11 @@ describe('Service Worker State Manager', () => {
     const sw = new ServiceWorkerStateManager({ get: vi.fn((k, cb) => cb({})), set: vi.fn((i, cb) => cb && cb()) } as any, undefined, tabsMock as any);
     await sw.startReplay(session, 101);
 
-    // Call scheduleNextReplayStep twice in quick succession (simulating tabs.onUpdated + CONTENT_READY_FOR_NEXT_STEP)
     sw.scheduleNextReplayStep(101, 50);
     sw.scheduleNextReplayStep(101, 50);
 
     await new Promise(r => setTimeout(r, 120));
 
-    // Must execute only once
     expect(stepCallCount).toBe(1);
   });
 
@@ -167,11 +174,9 @@ describe('Service Worker State Manager', () => {
     expect(queriedOptions).toEqual({ active: true, lastFocusedWindow: true });
     expect(tabsMock.sendMessage).toHaveBeenCalledWith(777, { type: 'SET_INSPECTOR', enabled: true });
 
-    // Immediate second call within 100ms is debounced to prevent double-toggle
     const debouncedState = await sw.toggleInspector();
     expect(debouncedState).toBe(true);
 
-    // Advance time beyond 500ms debounce window to turn it OFF
     await new Promise(r => setTimeout(r, 550));
     const isInspectingOff = await sw.toggleInspector();
     expect(isInspectingOff).toBe(false);
@@ -185,7 +190,6 @@ describe('Service Worker State Manager', () => {
         .mockResolvedValueOnce({ success: true, enabled: true })
     };
 
-    // Mock chrome.scripting
     const mockExecuteScript = vi.fn().mockResolvedValue([]);
     (globalThis as any).chrome = {
       scripting: {
@@ -202,5 +206,103 @@ describe('Service Worker State Manager', () => {
       target: { tabId: 888 },
       files: ['content.js']
     });
+  });
+
+  it('captures compressed JPEG screenshot only when tab is active and respects ceiling', async () => {
+    await manager.startRecording(101, 'https://app.example.com');
+
+    const shot1 = await manager.captureScreenshot('manual', 101, 'Step 1');
+    expect(shot1).toBeDefined();
+    expect(shot1?.trigger).toBe('manual');
+    expect(shot1?.dataUrl).toContain('data:image/jpeg;base64');
+    expect((await manager.getState()).currentSession?.screenshots?.length).toBe(1);
+
+    // Tab inactive -> skips capture for privacy
+    mockTabsApi.get.mockImplementationOnce((tabId: number, cb?: (tab: any) => void) => {
+      const tab = { id: 101, windowId: 1, active: false, url: 'https://app.example.com' };
+      if (cb) cb(tab);
+      return Promise.resolve(tab);
+    });
+
+    const shot2 = await manager.captureScreenshot('error_console', 101);
+    expect(shot2).toBeNull();
+    expect((await manager.getState()).currentSession?.screenshots?.length).toBe(1);
+
+    // Respects ceiling of 15 screenshots
+    const currentSession = (await manager.getState()).currentSession!;
+    for (let i = 1; i < 15; i++) {
+      currentSession.screenshots!.push({
+        id: `shot_${i}`,
+        timestamp: Date.now(),
+        trigger: 'manual',
+        dataUrl: 'data:image/jpeg;base64,mock',
+        url: 'https://app.example.com'
+      });
+    }
+    expect(currentSession.screenshots?.length).toBe(15);
+
+    const shotOverLimit = await manager.captureScreenshot('manual', 101);
+    expect(shotOverLimit).toBeNull();
+    expect((await manager.getState()).currentSession?.screenshots?.length).toBe(15);
+  });
+
+  it('purges previous screenshots completely when new recording begins', async () => {
+    await manager.startRecording(101, 'https://app.example.com');
+    await manager.captureScreenshot('manual', 101);
+    expect((await manager.getState()).currentSession?.screenshots?.length).toBe(1);
+
+    // Start new recording purges old screenshots
+    await manager.startRecording(101, 'https://app.example.com/new');
+    expect((await manager.getState()).currentSession?.screenshots?.length).toBe(0);
+  });
+
+  it('clears session events and screenshots on clearSession', async () => {
+    await manager.startRecording(101, 'https://app.example.com');
+    await manager.recordEvent({
+      id: 'e1', category: 'action', type: 'click', timestamp: 100, url: 'https://app.com',
+      selectors: { tag: 'button', css: 'button' }
+    }, 101);
+    await manager.captureScreenshot('manual', 101);
+
+    expect((await manager.getState()).currentSession?.events.length).toBe(1);
+    expect((await manager.getState()).currentSession?.screenshots?.length).toBe(1);
+
+    await manager.clearSession();
+
+    const state = await manager.getState();
+    expect(state.currentSession?.events.length).toBe(0);
+    expect(state.currentSession?.screenshots?.length).toBe(0);
+  });
+
+  it('auto-triggers screenshot on network or console error with debounce', async () => {
+    await manager.startRecording(101, 'https://app.example.com');
+
+    const netErr: NetworkEvent = {
+      id: 'net_1',
+      category: 'network',
+      type: 'fetch',
+      timestamp: 100,
+      url: 'https://app.example.com',
+      method: 'POST',
+      requestUrl: 'https://api.example.com/data',
+      status: 500,
+      durationMs: 50
+    };
+
+    await manager.recordEvent(netErr, 101);
+    expect((await manager.getState()).currentSession?.screenshots?.length).toBe(1);
+    expect((await manager.getState()).currentSession?.screenshots?.[0].trigger).toBe('error_network');
+
+    // Immediate second error within 1000ms is debounced
+    const consoleErr: ConsoleEvent = {
+      id: 'err_1',
+      category: 'console',
+      level: 'error',
+      timestamp: 150,
+      url: 'https://app.example.com',
+      message: 'Uncaught TypeError'
+    };
+    await manager.recordEvent(consoleErr, 101);
+    expect((await manager.getState()).currentSession?.screenshots?.length).toBe(1);
   });
 });
