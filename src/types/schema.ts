@@ -1,3 +1,22 @@
+export interface ScreenshotArtifact {
+  id: string;
+  timestamp: number;
+  trigger: 'error_network' | 'error_console' | 'manual';
+  dataUrl: string;
+  url: string;
+  label?: string;
+}
+
+export interface EnvironmentMetadata {
+  os?: string;
+  browser?: string;
+  screenResolution?: { width: number; height: number };
+  viewport: { width: number; height: number };
+  devicePixelRatio?: number;
+  language?: string;
+  online?: boolean;
+}
+
 export interface RecordedSession {
   sessionId: string;
   metadata: {
@@ -6,8 +25,10 @@ export interface RecordedSession {
     viewport: { width: number; height: number };
     startedAt: number;
     endedAt?: number;
+    environment?: EnvironmentMetadata;
   };
   events: TrackedEvent[];
+  screenshots?: ScreenshotArtifact[];
 }
 
 export type TrackedEvent = 
@@ -49,6 +70,7 @@ export interface NetworkEvent {
   requestUrl: string;
   status: number;
   durationMs: number;
+  requestPayload?: string;
   responsePreview?: string;
   error?: string;
 }
@@ -66,7 +88,7 @@ export interface ConsoleEvent {
 export interface NavigationEvent {
   id: string;
   category: 'navigation';
-  type: 'pushState' | 'replaceState' | 'popstate' | 'reload';
+  type?: 'pushState' | 'replaceState' | 'popstate' | 'reload';
   timestamp: number;
   fromUrl: string;
   toUrl: string;
@@ -101,7 +123,8 @@ export function isNavigationEvent(event: TrackedEvent): event is NavigationEvent
 export function createNewSession(
   startUrl: string,
   userAgent: string,
-  viewport: { width: number; height: number }
+  viewport: { width: number; height: number },
+  environment?: EnvironmentMetadata
 ): RecordedSession {
   const timestamp = Date.now();
   const randomSuffix = Math.random().toString(36).substring(2, 7);
@@ -111,8 +134,10 @@ export function createNewSession(
       startUrl,
       userAgent,
       viewport,
-      startedAt: timestamp
+      startedAt: timestamp,
+      environment
     },
-    events: []
+    events: [],
+    screenshots: []
   };
 }

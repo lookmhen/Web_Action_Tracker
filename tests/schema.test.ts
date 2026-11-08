@@ -8,7 +8,9 @@ import {
   ActionEvent,
   NetworkEvent,
   ConsoleEvent,
-  NavigationEvent
+  NavigationEvent,
+  ScreenshotArtifact,
+  EnvironmentMetadata
 } from '../src/types/schema';
 
 describe('Data Schema & Type Guards', () => {
@@ -43,7 +45,6 @@ describe('Data Schema & Type Guards', () => {
     const nav: NavigationEvent = {
       id: '4',
       category: 'navigation',
-      type: 'reload',
       timestamp: 103,
       fromUrl: 'http://a.com/old',
       toUrl: 'http://a.com/new'
@@ -69,5 +70,30 @@ describe('Data Schema & Type Guards', () => {
     expect(session.metadata.startUrl).toBe('https://app.example.com');
     expect(session.metadata.viewport).toEqual({ width: 1920, height: 1080 });
     expect(typeof session.metadata.startedAt).toBe('number');
+  });
+
+  it('validates ScreenshotArtifact and EnvironmentMetadata structures', () => {
+    const artifact: ScreenshotArtifact = {
+      id: 'shot_1',
+      timestamp: 1000,
+      trigger: 'error_network',
+      dataUrl: 'data:image/jpeg;base64,mockdata',
+      url: 'https://app.com',
+      label: 'API failure'
+    };
+    expect(artifact.trigger).toBe('error_network');
+    expect(artifact.dataUrl).toContain('data:image/jpeg;base64');
+
+    const env: EnvironmentMetadata = {
+      os: 'Windows',
+      browser: 'Chrome 130',
+      viewport: { width: 1920, height: 1080 },
+      screenResolution: { width: 2560, height: 1440 },
+      devicePixelRatio: 1.25,
+      language: 'en-US',
+      online: true
+    };
+    expect(env.os).toBe('Windows');
+    expect(env.devicePixelRatio).toBe(1.25);
   });
 });
