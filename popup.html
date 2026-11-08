@@ -19,17 +19,28 @@
     <button id="btn-record" class="btn btn-primary">
       <span id="btn-record-icon">●</span> <span id="btn-record-text">Record</span>
     </button>
+    <button id="btn-snapshot" class="btn btn-amber" title="Take manual screenshot">
+      <span>📸</span> <span>Snapshot</span>
+    </button>
     <button id="btn-inspect" class="btn btn-secondary" title="Shortcut: Alt+X">
       <span>🔍</span> <span>Inspect</span>
     </button>
     <button id="btn-replay" class="btn btn-blue">
       <span>▶</span> <span>Replay</span>
     </button>
+    <button id="btn-clear" class="btn btn-ghost" title="Clear current session">
+      <span>🗑️</span>
+    </button>
   </div>
 
   <div class="stats-bar">
     <div>Events: <strong id="event-count" style="color:#f8fafc">0</strong></div>
     <div>Failures: <strong id="failure-count" style="color:#ef4444">0</strong></div>
+  </div>
+
+  <div id="screenshot-section" class="screenshot-section" style="display: none;">
+    <div class="screenshot-title">📸 Screenshots (<span id="screenshot-count">0</span>)</div>
+    <div id="screenshot-gallery" class="screenshot-gallery"></div>
   </div>
 
   <div class="timeline-container">
