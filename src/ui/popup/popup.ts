@@ -45,6 +45,15 @@ export async function copyScreenshotImage(dataUrl: string): Promise<boolean> {
   }
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function setupPopupHandlers(deps: PopupDeps) {
   let currentStatus: string = 'IDLE';
   let activeTab: { id?: number; url?: string } | null = null;
@@ -178,6 +187,20 @@ export function setupPopupHandlers(deps: PopupDeps) {
           icon = '⏎';
           text = `Key [${e.key}] on ${e.selectors.tag}`;
         }
+
+        if (e.handler) {
+          if (e.handler.componentName) {
+            let compStr = `<${e.handler.componentName}>`;
+            if (e.handler.name) {
+              compStr += `.${e.handler.name}`;
+            }
+            text += ` ➔ ${compStr}`;
+          } else if (e.handler.name) {
+            text += ` ➔ fn: ${e.handler.name}`;
+          } else if (e.handler.raw) {
+            text += ` ➔ ${e.handler.raw}`;
+          }
+        }
       } else if (isNetworkEvent(e)) {
         if (e.status >= 400 || e.status === 0 || e.error) {
           icon = '⚠️';
@@ -206,7 +229,7 @@ export function setupPopupHandlers(deps: PopupDeps) {
       return `
         <div class="event-item ${isFailure ? 'failure' : ''}">
           <span class="event-icon">${icon}</span>
-          <span class="event-text" title="${text}">${text}</span>
+          <span class="event-text" title="${escapeHtml(text)}">${escapeHtml(text)}</span>
         </div>
       `;
     }).join('');
@@ -418,6 +441,7 @@ export function setupPopupHandlers(deps: PopupDeps) {
   });
 
   if (currentSession) {
+    renderTimeline(currentSession);
     renderScreenshots(currentSession);
   }
 

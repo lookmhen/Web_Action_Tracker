@@ -215,4 +215,28 @@ describe('Popup UI Handlers', () => {
     expect(modal.style.display).toBe('none');
     expect(document.getElementById('event-count')?.textContent).toBe('1');
   });
+
+  it('displays handler and React component in recent timeline items', () => {
+    const sessionWithHandler: RecordedSession = {
+      sessionId: 's1',
+      metadata: { startUrl: 'https://app.com', userAgent: 'Chrome', viewport: { width: 1920, height: 1080 }, startedAt: 100 },
+      events: [
+        {
+          id: '1', category: 'action', type: 'click', timestamp: 101, url: 'https://app.com',
+          selectors: { tag: 'button', id: 'btn-pay', css: '#btn-pay' },
+          handler: { name: 'handlePayment', componentName: 'OrderButton' }
+        }
+      ]
+    };
+
+    setupPopupHandlers({
+      sendMessage: vi.fn().mockResolvedValue({}),
+      getActiveTab: vi.fn().mockResolvedValue({ id: 101 }),
+      initialSession: sessionWithHandler
+    });
+
+    const eventList = document.getElementById('event-list');
+    expect(eventList?.innerHTML).toContain('&lt;OrderButton&gt;');
+    expect(eventList?.innerHTML).toContain('handlePayment');
+  });
 });
