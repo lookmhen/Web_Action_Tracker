@@ -58,6 +58,23 @@ export function exportToMarkdown(session: RecordedSession): string {
   lines.push(`* **Initial URL:** \`${session.metadata.startUrl}\``);
   const vp = session.metadata.viewport;
   lines.push(`* **Browser / Viewport:** Chrome | ${vp.width} x ${vp.height}\n`);
+
+  if (session.metadata.environment) {
+    const env = session.metadata.environment;
+    lines.push('---\n');
+    lines.push('## 💻 System & Environment\n');
+    lines.push('| Environment Property | Value |');
+    lines.push('| :--- | :--- |');
+    if (env.os) lines.push(`| OS | ${env.os} |`);
+    if (env.browser) lines.push(`| Browser | ${env.browser} |`);
+    if (env.screenResolution) lines.push(`| Screen Resolution | ${env.screenResolution.width} x ${env.screenResolution.height} |`);
+    if (env.viewport) lines.push(`| Viewport | ${env.viewport.width} x ${env.viewport.height} |`);
+    if (env.devicePixelRatio !== undefined) lines.push(`| Device Pixel Ratio | ${env.devicePixelRatio} |`);
+    if (env.language) lines.push(`| Language | ${env.language} |`);
+    if (env.online !== undefined) lines.push(`| Online | ${env.online ? 'Yes' : 'No'} |`);
+    lines.push('');
+  }
+
   lines.push('---\n');
   lines.push('### 📋 Steps to Reproduce');
 
@@ -90,6 +107,9 @@ export function exportToMarkdown(session: RecordedSession): string {
         lines.push(`#### ${failIndex++}. Network Failure (HTTP ${fail.status})`);
         lines.push(`* **Endpoint:** \`${fail.method} ${fail.requestUrl}\``);
         lines.push(`* **Duration:** ${fail.durationMs}ms`);
+        if (fail.requestPayload) {
+          lines.push(`* **Request Payload:**\n<details><summary>Request Payload</summary>\n\n\`\`\`json\n${fail.requestPayload}\n\`\`\`\n</details>`);
+        }
         if (fail.responsePreview) {
           lines.push(`* **Response Payload:** \`${fail.responsePreview}\``);
         }
@@ -106,6 +126,18 @@ export function exportToMarkdown(session: RecordedSession): string {
         lines.push('');
       }
     }
+  }
+
+  if (session.screenshots && session.screenshots.length > 0) {
+    lines.push('---\n');
+    lines.push('## 📸 Visual Evidence\n');
+    session.screenshots.forEach((shot, idx) => {
+      lines.push(`#### Screenshot ${idx + 1} (${shot.trigger})`);
+      lines.push(`* **Trigger:** \`${shot.trigger}\``);
+      if (shot.url) lines.push(`* **URL:** \`${shot.url}\``);
+      if (shot.label) lines.push(`* **Note:** ${shot.label}`);
+      lines.push(`<details><summary>📸 View Image (Base64)</summary>\n\n<img src="${shot.dataUrl}" alt="Screenshot ${idx + 1}" width="600" />\n</details>\n`);
+    });
   }
 
   return lines.join('\n');

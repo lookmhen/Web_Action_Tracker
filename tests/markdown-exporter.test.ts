@@ -62,6 +62,46 @@ describe('Markdown Exporter', () => {
     expect(md).toContain('https://api.example.com/v1/coupons/apply');
   });
 
+  it('formats environment metadata, request payloads, and collapsible screenshots in report', () => {
+    const session: RecordedSession = {
+      sessionId: 'rec_qa',
+      metadata: {
+        startUrl: 'https://app.com',
+        userAgent: 'Chrome',
+        viewport: { width: 1920, height: 1080 },
+        startedAt: 1000,
+        environment: {
+          os: 'Windows 11',
+          browser: 'Chrome 130',
+          screenResolution: { width: 2560, height: 1440 },
+          viewport: { width: 1920, height: 1080 },
+          devicePixelRatio: 1.25,
+          language: 'en-US',
+          online: true
+        }
+      },
+      events: [
+        {
+          id: 'n1', category: 'network', type: 'fetch', timestamp: 1050, url: 'https://app.com',
+          method: 'POST', requestUrl: 'https://api.app.com/checkout', status: 500, durationMs: 120,
+          requestPayload: '{"cartId":"123","items":[1,2]}', responsePreview: 'Internal Server Error'
+        }
+      ],
+      screenshots: [
+        { id: 's1', timestamp: 1060, trigger: 'error_network', dataUrl: 'data:image/jpeg;base64,abc123mock', url: 'https://app.com' }
+      ]
+    };
+
+    const md = exportToMarkdown(session);
+    expect(md).toContain('## 💻 System & Environment');
+    expect(md).toContain('| OS | Windows 11 |');
+    expect(md).toContain('<summary>Request Payload</summary>');
+    expect(md).toContain('{"cartId":"123","items":[1,2]}');
+    expect(md).toContain('## 📸 Visual Evidence');
+    expect(md).toContain('<details><summary>📸 View Image');
+    expect(md).toContain('data:image/jpeg;base64,abc123mock');
+  });
+
   it('handles empty session gracefully (Review Focus #1)', () => {
     const emptySession: RecordedSession = {
       sessionId: 'rec_empty',
