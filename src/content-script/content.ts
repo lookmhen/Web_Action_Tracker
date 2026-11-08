@@ -1,6 +1,7 @@
 import { ActionEvent, TrackedEvent } from '../types/schema';
 import { resolveElementSelectors } from '../utils/selectors';
 import { isSensitiveInput, maskValue } from '../utils/masking';
+import { resolveElementHandler } from '../utils/handlers';
 import { createInspector, InspectorController } from './inspector';
 import { executeReplayStep, startReplayRunner } from './replay';
 
@@ -47,6 +48,8 @@ export function handleDomEvent(
     value = sensitive ? maskValue(target.value) : target.value;
   }
 
+  const handler = resolveElementHandler(target, eventType);
+
   const actionEvent: ActionEvent = {
     id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     category: 'action',
@@ -56,7 +59,8 @@ export function handleDomEvent(
     selectors,
     value,
     key,
-    isSensitive: sensitive
+    isSensitive: sensitive,
+    handler: handler || undefined
   };
 
   sendCallback(actionEvent);

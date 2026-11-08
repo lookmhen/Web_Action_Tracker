@@ -79,7 +79,6 @@ describe('Content Script Event Delegation', () => {
       }
     };
 
-    // Re-setup to trigger listener registration
     setupContentScript();
 
     expect(messageListener).toBeTruthy();
@@ -90,5 +89,21 @@ describe('Content Script Event Delegation', () => {
 
     messageListener({ type: 'SET_INSPECTOR', enabled: false }, {}, responseSpy);
     expect(responseSpy).toHaveBeenCalledWith({ success: true, enabled: false });
+  });
+
+  it('attaches element handler and React metadata to ActionEvent', () => {
+    const btn = document.createElement('button');
+    btn.setAttribute('onclick', 'handleClick()');
+    document.body.appendChild(btn);
+
+    const mockSend = vi.fn();
+    const event = new MouseEvent('click', { bubbles: true });
+    Object.defineProperty(event, 'target', { value: btn });
+
+    const tracked = handleDomEvent(event, mockSend);
+    expect(tracked).toBeTruthy();
+    expect(tracked?.handler).toBeDefined();
+    expect(tracked?.handler?.raw).toBe('handleClick()');
+    expect(tracked?.handler?.name).toBe('handleClick');
   });
 });
