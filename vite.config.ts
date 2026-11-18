@@ -49,6 +49,21 @@ function extensionScriptsPlugin() {
           },
         },
       });
+
+      // 4. Bundle offscreen.js as self-contained IIFE
+      await build({
+        configFile: false,
+        build: {
+          emptyOutDir: false,
+          outDir: 'dist',
+          lib: {
+            entry: resolve(__dirname, 'src/offscreen/offscreen.ts'),
+            name: 'WATOffscreenScript',
+            formats: ['iife'],
+            fileName: () => 'offscreen.js',
+          },
+        },
+      });
     },
   };
 }

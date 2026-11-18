@@ -1,23 +1,58 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createInspector } from '../src/content-script/inspector';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createInspector, InspectorController } from '../src/content-script/inspector';
 
 describe('Live Element Inspector', () => {
+  const originalExecCommand = (document as any).execCommand;
+  const originalChrome = (globalThis as any).chrome;
+  let createdInspectors: InspectorController[] = [];
+
+  function makeInspector(): InspectorController {
+    const instance = createInspector();
+    createdInspectors.push(instance);
+    return instance;
+  }
+
   beforeEach(() => {
+    createdInspectors = [];
     document.body.innerHTML = `
       <div id="container">
         <button id="btn-save" class="btn primary" data-testid="save-btn">Save Changes</button>
       </div>
     `;
     // Mock navigator.clipboard
-    Object.assign(navigator, {
-      clipboard: {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      writable: true,
+      value: {
         writeText: vi.fn().mockResolvedValue(undefined)
       }
     });
+    delete (document as any).execCommand;
+    delete (globalThis as any).chrome;
+  });
+
+  afterEach(() => {
+    for (const inst of createdInspectors) {
+      if (inst.isEnabled()) {
+        inst.disable();
+      }
+    }
+    createdInspectors = [];
+    vi.restoreAllMocks();
+    if (originalExecCommand !== undefined) {
+      (document as any).execCommand = originalExecCommand;
+    } else {
+      delete (document as any).execCommand;
+    }
+    if (originalChrome !== undefined) {
+      (globalThis as any).chrome = originalChrome;
+    } else {
+      delete (globalThis as any).chrome;
+    }
   });
 
   it('toggles inspector mode and creates overlay elements', () => {
-    const inspector = createInspector();
+    const inspector = makeInspector();
     expect(inspector.isEnabled()).toBe(false);
 
     inspector.enable();
@@ -31,7 +66,7 @@ describe('Live Element Inspector', () => {
   });
 
   it('updates tooltip card and highlight box on mouseover', () => {
-    const inspector = createInspector();
+    const inspector = makeInspector();
     inspector.enable();
 
     const btn = document.getElementById('btn-save')!;
@@ -49,7 +84,7 @@ describe('Live Element Inspector', () => {
   });
 
   it('copies full element details with selector on top to clipboard on click', () => {
-    const inspector = createInspector();
+    const inspector = makeInspector();
     inspector.enable();
 
     const btn = document.getElementById('btn-save')!;
@@ -80,7 +115,7 @@ describe('Live Element Inspector', () => {
   });
 
   it('shows visual toast on enable and disable', () => {
-    const inspector = createInspector();
+    const inspector = makeInspector();
     inspector.enable();
 
     const toast = document.getElementById('__wat_inspector_toast__');
@@ -93,7 +128,7 @@ describe('Live Element Inspector', () => {
   });
 
   it('disables inspector when Escape key is pressed', () => {
-    const inspector = createInspector();
+    const inspector = makeInspector();
     inspector.enable();
     expect(inspector.isEnabled()).toBe(true);
 
@@ -106,7 +141,7 @@ describe('Live Element Inspector', () => {
   });
 
   it('debounces rapid toggle calls within short interval', () => {
-    const inspector = createInspector();
+    const inspector = makeInspector();
     expect(inspector.isEnabled()).toBe(false);
 
     // First toggle: ON
@@ -120,7 +155,7 @@ describe('Live Element Inspector', () => {
   });
 
   it('extracts computed CSS styles including dimensions, colors, box model, and typography', () => {
-    const inspector = createInspector();
+    const inspector = makeInspector();
     inspector.enable();
 
     const btn = document.getElementById('btn-save')!;
@@ -161,5 +196,186 @@ describe('Live Element Inspector', () => {
     expect(card.innerHTML).toContain('14px');
     expect(card.innerHTML).toContain('Inter');
     expect(card.innerHTML).toContain('600');
+  });
+
+  it('falls back to document.execCommand copy when navigator.clipboard is unavailable (e.g. HTTP site)', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      writable: true,
+      value: undefined
+    });
+
+    let copiedViaTextarea = '';
+    (document as any).execCommand = vi.fn((cmd: string) => {
+      if (cmd === 'copy') {
+        const active = document.activeElement as HTMLTextAreaElement | null;
+        copiedViaTextarea = active?.tagName === 'TEXTAREA' ? active.value : '';
+        return true;
+      }
+      return false;
+    });
+
+    const inspector = makeInspector();
+    inspector.enable();
+
+    const btn = document.getElementById('btn-save')!;
+    btn.getBoundingClientRect = vi.fn().mockReturnValue({
+      top: 50, left: 100, width: 120, height: 42, bottom: 92, right: 220
+    });
+
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect((document as any).execCommand).toHaveBeenCalledWith('copy');
+      const toast = document.getElementById('__wat_inspector_toast__')!;
+      expect(toast.textContent).toContain('Copied details for [data-testid="save-btn"]');
+      expect(toast.style.backgroundColor).toBe('rgb(16, 185, 129)');
+    });
+
+    expect(copiedViaTextarea.startsWith('Selector: [data-testid="save-btn"]')).toBe(true);
+    expect(copiedViaTextarea).toContain('Tag: <button>');
+    // Temporary textarea must be cleaned up
+    expect(document.querySelector('textarea')).toBeNull();
+  });
+
+  it('falls back to document.execCommand copy when navigator.clipboard.writeText rejects', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      writable: true,
+      value: {
+        writeText: vi.fn().mockRejectedValue(new DOMException('Document is not focused', 'NotAllowedError'))
+      }
+    });
+
+    let copiedViaTextarea = '';
+    (document as any).execCommand = vi.fn((cmd: string) => {
+      if (cmd === 'copy') {
+        const active = document.activeElement as HTMLTextAreaElement | null;
+        copiedViaTextarea = active?.tagName === 'TEXTAREA' ? active.value : '';
+        return true;
+      }
+      return false;
+    });
+
+    const inspector = makeInspector();
+    inspector.enable();
+
+    const btn = document.getElementById('btn-save')!;
+    btn.getBoundingClientRect = vi.fn().mockReturnValue({
+      top: 50, left: 100, width: 120, height: 42, bottom: 92, right: 220
+    });
+
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect((document as any).execCommand).toHaveBeenCalledWith('copy');
+      const toast = document.getElementById('__wat_inspector_toast__')!;
+      expect(toast.textContent).toContain('Copied details for [data-testid="save-btn"]');
+      expect(toast.style.backgroundColor).toBe('rgb(16, 185, 129)');
+    });
+
+    expect(copiedViaTextarea.startsWith('Selector: [data-testid="save-btn"]')).toBe(true);
+  });
+
+  it('falls back to background COPY_TO_CLIPBOARD when in-page clipboard and execCommand both fail', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      writable: true,
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error('Blocked by Permissions-Policy'))
+      }
+    });
+    (document as any).execCommand = vi.fn().mockReturnValue(false);
+
+    const sendMessageMock = vi.fn().mockResolvedValue({ success: true });
+    (globalThis as any).chrome = {
+      runtime: {
+        sendMessage: sendMessageMock
+      }
+    };
+
+    const inspector = makeInspector();
+    inspector.enable();
+
+    const btn = document.getElementById('btn-save')!;
+    btn.getBoundingClientRect = vi.fn().mockReturnValue({
+      top: 50, left: 100, width: 120, height: 42, bottom: 92, right: 220
+    });
+
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'COPY_TO_CLIPBOARD',
+          text: expect.stringContaining('Selector: [data-testid="save-btn"]')
+        })
+      );
+      const toast = document.getElementById('__wat_inspector_toast__')!;
+      expect(toast.textContent).toContain('Copied details for [data-testid="save-btn"]');
+      expect(toast.style.backgroundColor).toBe('rgb(16, 185, 129)');
+    });
+  });
+
+  it('shows red error toast instead of fake green Copied toast when all clipboard methods fail', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      writable: true,
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error('Denied'))
+      }
+    });
+    (document as any).execCommand = vi.fn().mockReturnValue(false);
+    (globalThis as any).chrome = {
+      runtime: {
+        sendMessage: vi.fn().mockResolvedValue({ success: false })
+      }
+    };
+
+    const inspector = makeInspector();
+    inspector.enable();
+
+    const btn = document.getElementById('btn-save')!;
+    btn.getBoundingClientRect = vi.fn().mockReturnValue({
+      top: 50, left: 100, width: 120, height: 42, bottom: 92, right: 220
+    });
+
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      const toast = document.getElementById('__wat_inspector_toast__')!;
+      expect(toast.textContent).toContain('Failed to copy');
+      expect(toast.style.backgroundColor).toBe('rgb(239, 68, 68)');
+    });
+  });
+
+  it('handles form elements containing a child input named "id" without crashing', async () => {
+    document.body.innerHTML = `
+      <form data-testid="login-form">
+        <input name="id" value="123" />
+      </form>
+    `;
+    const form = document.querySelector('form')!;
+    const input = form.querySelector('input')!;
+    // Simulate Chromium HTMLFormElement named-element property shadowing where form.id is an HTMLInputElement
+    Object.defineProperty(form, 'id', {
+      configurable: true,
+      value: input
+    });
+    form.getBoundingClientRect = vi.fn().mockReturnValue({
+      top: 10, left: 10, width: 200, height: 100, bottom: 110, right: 210
+    });
+
+    const inspector = makeInspector();
+    inspector.enable();
+
+    form.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    form.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalled();
+    });
+    const copiedText = (navigator.clipboard.writeText as any).mock.calls[0][0];
+    expect(copiedText).toContain('Selector: [data-testid="login-form"]');
   });
 });

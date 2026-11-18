@@ -485,6 +485,76 @@ export class ServiceWorkerStateManager {
   }
 }
 
+let creatingOffscreen: Promise<void> | null = null;
+
+async function ensureOffscreenDocument(): Promise<boolean> {
+  const chromeGlobal = (globalThis as any).chrome;
+  const offscreenApi = chromeGlobal?.offscreen;
+  if (!offscreenApi?.createDocument) {
+    return false;
+  }
+
+  const offscreenUrl = chromeGlobal.runtime?.getURL?.('offscreen.html');
+
+  if (typeof chromeGlobal.runtime?.getContexts === 'function' && offscreenUrl) {
+    const contexts = await chromeGlobal.runtime.getContexts({
+      contextTypes: [chromeGlobal.runtime.ContextType?.OFFSCREEN_DOCUMENT || 'OFFSCREEN_DOCUMENT'],
+      documentUrls: [offscreenUrl]
+    });
+    if (Array.isArray(contexts) && contexts.length > 0) {
+      return true;
+    }
+  }
+
+  if (creatingOffscreen) {
+    await creatingOffscreen;
+    return true;
+  }
+
+  creatingOffscreen = offscreenApi.createDocument({
+    url: 'offscreen.html',
+    reasons: [offscreenApi.Reason?.CLIPBOARD || 'CLIPBOARD'],
+    justification: 'Copy inspected element details to clipboard when host page blocks clipboard access'
+  });
+
+  try {
+    await creatingOffscreen;
+    return true;
+  } catch (err: any) {
+    // Another call or existing document already satisfies the single-offscreen limit
+    if (String(err?.message || '').toLowerCase().includes('single offscreen document')) {
+      return true;
+    }
+    return false;
+  } finally {
+    creatingOffscreen = null;
+  }
+}
+
+/**
+ * Writes text to clipboard via an MV3 offscreen document so clipboard copy
+ * works even when the inspected page is HTTP, unfocused, or blocks copy events.
+ */
+export async function copyToClipboardViaOffscreen(text: string): Promise<boolean> {
+  if (typeof text !== 'string') return false;
+  const chromeGlobal = (globalThis as any).chrome;
+  if (!chromeGlobal?.runtime?.sendMessage) return false;
+
+  try {
+    const ready = await ensureOffscreenDocument();
+    if (!ready) return false;
+
+    const response = await chromeGlobal.runtime.sendMessage({
+      target: 'offscreen',
+      type: 'OFFSCREEN_COPY',
+      text
+    });
+    return Boolean(response?.success);
+  } catch {
+    return false;
+  }
+}
+
 // Service worker runtime setup
 if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
   const manager = new ServiceWorkerStateManager(
@@ -495,6 +565,10 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
 
   // Message dispatcher
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.target === 'offscreen') {
+      return false;
+    }
+
     const tabId = sender.tab?.id;
 
     switch (message.type) {
@@ -574,6 +648,12 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.runtime) {
           sendResponse({ success: true });
         }
         break;
+
+      case 'COPY_TO_CLIPBOARD':
+        copyToClipboardViaOffscreen(message.text)
+          .then((success) => sendResponse({ success }))
+          .catch(() => sendResponse({ success: false }));
+        return true;
 
       default:
         break;

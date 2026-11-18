@@ -12,6 +12,8 @@ describe('Built Extension Package Verification', () => {
     expect(fs.existsSync(path.join(dist, 'injected.js'))).toBe(true);
     expect(fs.existsSync(path.join(dist, 'popup.html'))).toBe(true);
     expect(fs.existsSync(path.join(dist, 'popup.js'))).toBe(true);
+    expect(fs.existsSync(path.join(dist, 'offscreen.html'))).toBe(true);
+    expect(fs.existsSync(path.join(dist, 'offscreen.js'))).toBe(true);
     expect(fs.existsSync(path.join(dist, 'icons/icon16.png'))).toBe(true);
     expect(fs.existsSync(path.join(dist, 'icons/icon48.png'))).toBe(true);
     expect(fs.existsSync(path.join(dist, 'icons/icon128.png'))).toBe(true);

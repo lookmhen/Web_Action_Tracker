@@ -8,6 +8,8 @@ describe('Project Manifest V3 Configuration', () => {
     expect(manifest.permissions).toContain('storage');
     expect(manifest.permissions).toContain('activeTab');
     expect(manifest.permissions).toContain('scripting');
+    expect(manifest.permissions).toContain('clipboardWrite');
+    expect(manifest.permissions).toContain('offscreen');
     expect(manifest.background.service_worker).toBe('service-worker.js');
   });
 });

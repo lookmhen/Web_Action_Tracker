@@ -96,6 +96,141 @@ function escapeHtml(str?: string | null): string {
     .replace(/'/g, '&#039;');
 }
 
+function getSafeElementId(element: HTMLElement | null): string {
+  if (!element) return '';
+  if (typeof element.id === 'string') return element.id;
+  return typeof element.getAttribute === 'function' ? (element.getAttribute('id') || '') : '';
+}
+
+function copyViaExecCommand(text: string): boolean {
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') {
+    return false;
+  }
+
+  const host = document.body || document.documentElement;
+  if (!host) return false;
+
+  const previousActive = document.activeElement as HTMLElement | null;
+  const selection = typeof window !== 'undefined' ? window.getSelection() : null;
+  const savedRanges: Range[] = [];
+  if (selection) {
+    for (let i = 0; i < selection.rangeCount; i++) {
+      savedRanges.push(selection.getRangeAt(i));
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.setAttribute('aria-hidden', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '0';
+  textarea.style.left = '-9999px';
+  textarea.style.width = '2em';
+  textarea.style.height = '2em';
+  textarea.style.padding = '0';
+  textarea.style.border = 'none';
+  textarea.style.outline = 'none';
+  textarea.style.boxShadow = 'none';
+  textarea.style.background = 'transparent';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  textarea.style.userSelect = 'text';
+  textarea.style.setProperty('-webkit-user-select', 'text');
+
+  let copyBlockedByPage = false;
+  const stopForeignHandlers = (ev: Event) => {
+    if (ev.target === textarea) {
+      ev.stopImmediatePropagation();
+    }
+  };
+  textarea.addEventListener('copy', (ev) => {
+    if (ev.defaultPrevented) {
+      copyBlockedByPage = true;
+    }
+  });
+
+  window.addEventListener('focusin', stopForeignHandlers, true);
+  window.addEventListener('focusout', stopForeignHandlers, true);
+  window.addEventListener('copy', stopForeignHandlers, true);
+
+  host.appendChild(textarea);
+
+  let copied = false;
+  try {
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+
+    if (document.activeElement === textarea) {
+      copied = document.execCommand('copy') && !copyBlockedByPage;
+    }
+  } catch {
+    copied = false;
+  } finally {
+    window.removeEventListener('focusin', stopForeignHandlers, true);
+    window.removeEventListener('focusout', stopForeignHandlers, true);
+    window.removeEventListener('copy', stopForeignHandlers, true);
+
+    textarea.remove();
+
+    if (selection) {
+      try {
+        selection.removeAllRanges();
+        for (const range of savedRanges) {
+          selection.addRange(range);
+        }
+      } catch {
+        // Ignore selection restore errors
+      }
+    }
+
+    if (previousActive && previousActive !== document.body && typeof previousActive.focus === 'function') {
+      try {
+        previousActive.focus({ preventScroll: true });
+      } catch {
+        // Ignore focus restore errors
+      }
+    }
+  }
+
+  return copied;
+}
+
+async function copyDetailsToClipboard(text: string): Promise<boolean> {
+  // 1. Modern Async Clipboard API (HTTPS / localhost with focused document)
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to execCommand / background offscreen fallbacks
+    }
+  }
+
+  // 2. Synchronous in-page execCommand('copy') fallback (HTTP sites & Permissions-Policy)
+  if (copyViaExecCommand(text)) {
+    return true;
+  }
+
+  // 3. Background service worker -> MV3 offscreen document fallback (unfocused tab / blocked copy)
+  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'COPY_TO_CLIPBOARD',
+        text
+      });
+      if (response?.success) {
+        return true;
+      }
+    } catch {
+      // Ignore runtime messaging failures
+    }
+  }
+
+  return false;
+}
+
 export function formatElementDetails(
   element: HTMLElement,
   selectors: ReturnType<typeof resolveElementSelectors>,
@@ -191,13 +326,14 @@ export function createInspector(): InspectorController {
 
   let toastTimer: any = null;
 
-  function showToast(message: string, durationMs = 2500) {
+  function showToast(message: string, durationMs = 2500, isError = false) {
     ensureElements();
     if (!toast) return;
     if (toastTimer) {
       clearTimeout(toastTimer);
       toastTimer = null;
     }
+    toast.style.backgroundColor = isError ? '#ef4444' : '#10b981';
     toast.textContent = message;
     toast.style.display = 'block';
     toastTimer = setTimeout(() => {
@@ -210,7 +346,7 @@ export function createInspector(): InspectorController {
     if (!enabled) return;
     const target = e.target as HTMLElement | null;
     if (!target || target === box || target === card || target === toast) return;
-    if (target.id?.startsWith('__wat_')) return;
+    if (getSafeElementId(target).startsWith('__wat_')) return;
 
     currentTarget = target;
     ensureElements();
@@ -297,24 +433,23 @@ export function createInspector(): InspectorController {
   function handleClick(e: MouseEvent) {
     if (!enabled) return;
     const target = e.target as HTMLElement | null;
-    if (!target || target.id?.startsWith('__wat_')) return;
+    if (!target || getSafeElementId(target).startsWith('__wat_')) return;
 
     e.preventDefault();
     e.stopPropagation();
+    e.stopImmediatePropagation?.();
 
     const selectors = resolveElementSelectors(target);
     const bestSelector = computeBestSelector(selectors);
     const fullDetails = formatElementDetails(target, selectors, bestSelector);
 
-    if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(fullDetails).then(() => {
+    copyDetailsToClipboard(fullDetails).then((copied) => {
+      if (copied) {
         showToast(`Copied details for ${bestSelector}`);
-      }).catch(() => {
-        showToast(`Copied details for ${bestSelector}`);
-      });
-    } else {
-      showToast(`Copied details for ${bestSelector}`);
-    }
+      } else {
+        showToast(`Failed to copy details for ${bestSelector}`, 3000, true);
+      }
+    });
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -322,7 +457,9 @@ export function createInspector(): InspectorController {
       e.preventDefault();
       disable();
       if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-        chrome.runtime.sendMessage({ type: 'INSPECTOR_STATE_CHANGED', enabled: false }).catch(() => {});
+        Promise.resolve(
+          chrome.runtime.sendMessage({ type: 'INSPECTOR_STATE_CHANGED', enabled: false })
+        ).catch(() => {});
       }
     }
   }
@@ -335,8 +472,10 @@ export function createInspector(): InspectorController {
     showToast('🔍 Inspector: ON (Click element to copy, Alt+X to exit)', 3000);
     window.removeEventListener('mouseover', handleMouseOver, true);
     window.removeEventListener('click', handleClick, true);
+    window.removeEventListener('keydown', handleKeyDown, true);
     window.addEventListener('mouseover', handleMouseOver, true);
     window.addEventListener('click', handleClick, true);
+    window.addEventListener('keydown', handleKeyDown, true);
   }
 
   function disable() {
@@ -353,6 +492,7 @@ export function createInspector(): InspectorController {
     currentTarget = null;
     window.removeEventListener('mouseover', handleMouseOver, true);
     window.removeEventListener('click', handleClick, true);
+    window.removeEventListener('keydown', handleKeyDown, true);
   }
 
   function toggle(): boolean {
@@ -373,9 +513,6 @@ export function createInspector(): InspectorController {
   function isEnabled(): boolean {
     return enabled;
   }
-
-  // Keyboard shortcut Alt+X is active globally
-  window.addEventListener('keydown', handleKeyDown, true);
 
   return {
     enable,

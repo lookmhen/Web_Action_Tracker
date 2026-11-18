@@ -12,6 +12,12 @@ export function isDynamicId(id: string): boolean {
   return DYNAMIC_ID_REGEX.test(id);
 }
 
+function getSafeElementId(element: Element): string {
+  const raw = (element as HTMLElement).id;
+  if (typeof raw === 'string') return raw;
+  return element.getAttribute?.('id') || '';
+}
+
 export function filterStableClasses(classList: DOMTokenList | string[]): string[] {
   const classes = Array.isArray(classList) ? classList : Array.from(classList);
   return classes
@@ -79,8 +85,9 @@ export function getAccessibleName(element: Element): string | undefined {
 }
 
 export function generateCssSelector(element: Element): string {
-  if (element.id && !isDynamicId(element.id)) {
-    return `#${element.id}`;
+  const safeId = getSafeElementId(element);
+  if (safeId && !isDynamicId(safeId)) {
+    return `#${safeId}`;
   }
 
   const testId = getElementTestId(element);
@@ -110,8 +117,9 @@ export function generateCssSelector(element: Element): string {
   let current: Element | null = element;
   while (current && current.nodeType === Node.ELEMENT_NODE && current !== document.body && current !== document.documentElement) {
     let selector = current.tagName.toLowerCase();
-    if (current.id && !isDynamicId(current.id)) {
-      selector += `#${current.id}`;
+    const currentId = getSafeElementId(current);
+    if (currentId && !isDynamicId(currentId)) {
+      selector += `#${currentId}`;
       path.unshift(selector);
       break;
     } else {
@@ -137,7 +145,8 @@ export function generateCssSelector(element: Element): string {
 export function resolveElementSelectors(element: Element): ElementSelectors {
   const tag = element.tagName.toLowerCase();
   const testId = getElementTestId(element);
-  const id = element.id && !isDynamicId(element.id) ? element.id : undefined;
+  const rawId = getSafeElementId(element);
+  const id = rawId && !isDynamicId(rawId) ? rawId : undefined;
   const role = getElementRole(element);
   const name = getAccessibleName(element);
   const text = truncateText(element.textContent);

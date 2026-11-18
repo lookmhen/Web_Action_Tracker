@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ServiceWorkerStateManager } from '../src/background/service-worker';
+import { ServiceWorkerStateManager, copyToClipboardViaOffscreen } from '../src/background/service-worker';
 import { ActionEvent, NetworkEvent, ConsoleEvent, RecordedSession } from '../src/types/schema';
 
 describe('Service Worker State Manager', () => {
@@ -304,5 +304,52 @@ describe('Service Worker State Manager', () => {
     };
     await manager.recordEvent(consoleErr, 101);
     expect((await manager.getState()).currentSession?.screenshots?.length).toBe(1);
+  });
+
+  it('copies text via MV3 offscreen document and reuses existing offscreen context', async () => {
+    let hasDoc = false;
+    const createDocument = vi.fn().mockImplementation(async () => {
+      hasDoc = true;
+    });
+    const getContexts = vi.fn().mockImplementation(async () => {
+      return hasDoc ? [{ documentUrl: 'chrome-extension://id/offscreen.html' }] : [];
+    });
+    const sendMessage = vi.fn().mockResolvedValue({ success: true });
+
+    const prevChrome = (globalThis as any).chrome;
+    (globalThis as any).chrome = {
+      offscreen: {
+        createDocument,
+        Reason: { CLIPBOARD: 'CLIPBOARD' }
+      },
+      runtime: {
+        getURL: vi.fn((p: string) => `chrome-extension://id/${p}`),
+        getContexts,
+        sendMessage,
+        ContextType: { OFFSCREEN_DOCUMENT: 'OFFSCREEN_DOCUMENT' }
+      }
+    };
+
+    try {
+      const ok1 = await copyToClipboardViaOffscreen('Selector: #btn-1');
+      expect(ok1).toBe(true);
+      expect(createDocument).toHaveBeenCalledTimes(1);
+      expect(sendMessage).toHaveBeenCalledWith({
+        target: 'offscreen',
+        type: 'OFFSCREEN_COPY',
+        text: 'Selector: #btn-1'
+      });
+
+      const ok2 = await copyToClipboardViaOffscreen('Selector: #btn-2');
+      expect(ok2).toBe(true);
+      expect(createDocument).toHaveBeenCalledTimes(1);
+      expect(sendMessage).toHaveBeenCalledWith({
+        target: 'offscreen',
+        type: 'OFFSCREEN_COPY',
+        text: 'Selector: #btn-2'
+      });
+    } finally {
+      (globalThis as any).chrome = prevChrome;
+    }
   });
 });
